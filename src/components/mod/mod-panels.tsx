@@ -39,7 +39,7 @@ export function PendingUsers({ users }: { users: U[] }) {
             <p className="truncate font-medium">{u.name}</p>
             <p className="truncate text-xs text-muted-foreground">{u.email}</p>
           </div>
-          <Button size="sm" disabled={pending || !u.avatarFileId} title={u.avatarFileId ? "" : "Pas encore de photo"} onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}>
+          <Button size="sm" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}>
             Valider
           </Button>
           <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "rejected"), "Refusé", `Refuser ${u.name} ?`)}>

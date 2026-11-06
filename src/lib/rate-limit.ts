@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { headers } from "next/headers";
 import { RateLimiterPostgres, RateLimiterRes } from "rate-limiter-flexible";
 import { pool } from "@/db";
@@ -15,7 +16,9 @@ const LIMITS = {
   submit: { points: 10, duration: 60 },
   modAction: { points: 60, duration: 60 },
   profile: { points: 20, duration: 60 * 60 },
-  authEmail: { points: 20, duration: 60 * 60 },
+  // failed sign-ins per (email, ip): only failures count, so nobody can lock
+  // someone else out just by knowing their email
+  authFail: { points: 20, duration: 60 * 60 },
   // global per-IP safety net for any mutating call
   ip: { points: 120, duration: 60 },
 } as const;
@@ -30,6 +33,7 @@ function limiter(name: LimitName) {
       storeType: "pool",
       tableName: "app_rate_limits",
       tableCreated: true, // managed by drizzle migrations
+      clearExpiredByTimeout: true, // purge expired rows (no unbounded growth)
       keyPrefix: `rl_${name}`,
       ...LIMITS[name],
     });
@@ -38,6 +42,21 @@ function limiter(name: LimitName) {
   return l;
 }
 
+/** Keys are hashed: no raw emails / IPs at rest in the rate-limit table. */
+const hashKey = (k: string) => createHash("sha256").update(k).digest("base64url").slice(0, 32);
+
+/* ---------------- client IP ---------------- */
+
+/**
+ * Where the real client IP comes from.
+ * - CLIENT_IP_HEADER set (e.g. "cf-connecting-ip" behind Cloudflare, or
+ *   "x-real-ip" set by your nginx): that single header is trusted as-is.
+ *   Use it whenever the app is behind a proxy that overwrites the header.
+ * - otherwise X-Forwarded-For walked right-to-left, skipping TRUSTED_PROXIES
+ *   (exact IPs). Without a proxy in front, X-Forwarded-For is client-controlled:
+ *   always set CLIENT_IP_HEADER in production.
+ */
+export const CLIENT_IP_HEADER = process.env.CLIENT_IP_HEADER?.trim().toLowerCase() || "";
 const trustedProxies = new Set(
   (process.env.TRUSTED_PROXIES ?? "")
     .split(",")
@@ -45,13 +64,8 @@ const trustedProxies = new Set(
     .filter(Boolean),
 );
 
-/**
- * Client IP from X-Forwarded-For, walked right-to-left: the rightmost entry is
- * added by the closest hop (Next.js itself / our proxy) and can't be forged
- * by the client. Trusted proxies (exact IPs) are skipped.
- */
-export async function clientIp(): Promise<string> {
-  const h = await headers();
+export function ipFromHeaders(h: Headers): string {
+  if (CLIENT_IP_HEADER) return h.get(CLIENT_IP_HEADER)?.trim() || "unknown";
   const chain = (h.get("x-forwarded-for") ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -62,9 +76,15 @@ export async function clientIp(): Promise<string> {
   return chain[0] ?? "unknown";
 }
 
+export async function clientIp(): Promise<string> {
+  return ipFromHeaders(await headers());
+}
+
+/* ---------------- consume / peek ---------------- */
+
 async function consume(name: LimitName, key: string) {
   try {
-    await limiter(name).consume(key);
+    await limiter(name).consume(hashKey(key));
   } catch (res) {
     if (res instanceof RateLimiterRes) {
       throw tooManyRequests(Math.ceil(res.msBeforeNext / 1000));
@@ -73,15 +93,20 @@ async function consume(name: LimitName, key: string) {
   }
 }
 
-/** Raw consume on an arbitrary key; returns seconds to wait, or 0 if allowed. */
-export async function tryConsume(name: LimitName, key: string): Promise<number> {
-  try {
-    await limiter(name).consume(key);
-    return 0;
-  } catch (res) {
-    if (res instanceof RateLimiterRes) return Math.max(1, Math.ceil(res.msBeforeNext / 1000));
-    throw res;
-  }
+/** Seconds to wait if `key` is already over its limit (does not consume). */
+export async function peek(name: LimitName, key: string): Promise<number> {
+  const res = await limiter(name).get(hashKey(key));
+  if (res && res.consumedPoints >= LIMITS[name].points) return Math.max(1, Math.ceil(res.msBeforeNext / 1000));
+  return 0;
+}
+
+/** Count one hit without throwing (e.g. a failed sign-in). */
+export async function record(name: LimitName, key: string): Promise<void> {
+  await limiter(name)
+    .consume(hashKey(key))
+    .catch((res) => {
+      if (!(res instanceof RateLimiterRes)) throw res;
+    });
 }
 
 /**

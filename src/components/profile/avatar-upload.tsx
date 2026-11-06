@@ -39,7 +39,7 @@ export function AvatarUpload({ name, fileId }: { name: string; fileId: string | 
         <Button variant="outline" disabled={pending} onClick={() => input.current?.click()}>
           {pending ? "Envoi…" : fileId ? "Changer ma photo" : "Ajouter ma photo"}
         </Button>
-        <p className="text-xs text-muted-foreground">C&apos;est elle qui sera classée. Carré, 5 Mo max.</p>
+        <p className="text-xs text-muted-foreground">Optionnel : sinon ce sont tes initiales qui seront classées. 5 Mo max.</p>
       </div>
     </div>
   );

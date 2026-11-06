@@ -2,15 +2,16 @@ import Link from "next/link";
 import { Search } from "lucide-react";
 import { pageUser } from "@/lib/permissions";
 import { listBoard, membersById } from "@/server/board";
+import { boardVersion } from "@/server/live";
 import { PinnedPost, PostCard } from "@/components/board/post-card";
 import { LiveRefresh } from "@/components/board/live-refresh";
 import { dayKey, formatDayFr } from "@/lib/dates";
 import { EmptyState } from "@/components/board/empty-state";
 
-export default async function BoardPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+export default async function BoardPage({ searchParams }: { searchParams: Promise<{ q?: string | string[] }> }) {
   const u = await pageUser();
   const { q: rawQ } = await searchParams;
-  const q = rawQ?.trim().slice(0, 80) || undefined;
+  const q = (Array.isArray(rawQ) ? rawQ[0] : rawQ)?.trim().slice(0, 80) || undefined;
 
   const posts = await listBoard(u.id, { q });
   const members = await membersById([...new Set(posts.flatMap((p) => p.top3))]);
@@ -20,7 +21,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="flex flex-col gap-6">
-      <LiveRefresh />
+      <LiveRefresh initial={await boardVersion()} />
       {/* phone: the sticky TierUs header (layout) is enough */}
       <header className="hidden lg:block">
         <p className="text-sm font-semibold text-muted-foreground capitalize">{formatDayFr(dayKey())}</p>

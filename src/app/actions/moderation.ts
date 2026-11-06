@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireAdmin, requireModerator } from "@/lib/permissions";
@@ -9,6 +9,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
 import { badRequest, forbidden, notFound, runAction } from "@/lib/errors";
 import { syncTodayTargets } from "@/server/rounds/targets";
+import { revealIfAllPlayed } from "@/server/rounds/reveal";
 
 const { user, session } = schema;
 const userId = z.string().min(1).max(64);
@@ -28,16 +29,27 @@ export async function setUserStatus(id: string, status: "active" | "rejected") {
     if (target.id === mod.id) throw badRequest("Tu ne peux pas changer ton propre statut");
     if (target.role === "admin") throw forbidden("Impossible de modifier un admin");
     if (target.role === "moderator" && mod.role !== "admin") throw forbidden("Seul un admin peut gérer un modérateur");
-    if (status === "active" && !target.avatarFileId) throw badRequest("Ce membre n'a pas encore de photo de profil");
 
     await db.transaction(async (tx) => {
       await tx.update(user).set({ status, ...(status === "rejected" ? { role: "member" as const } : {}) }).where(eq(user.id, target.id));
-      // Refused / banned: kill all sessions right away
-      if (status === "rejected") await tx.delete(session).where(eq(session.userId, target.id));
+      if (status === "rejected") {
+        // Refused / banned: kill all sessions right away…
+        await tx.delete(session).where(eq(session.userId, target.id));
+        // …and drop them from rounds still open, so they don't block the reveal
+        await tx.execute(sql`
+          delete from ${schema.roundTargets} rt using ${schema.rounds} r
+          where rt.round_id = r.id and r.revealed_at is null and rt.user_id = ${target.id}
+        `);
+      }
       await audit(mod.id, status === "active" ? "user.approve" : "user.reject", "user", target.id, { previous: target.status }, tx);
     });
     // New member joins today's tier list right away (existing answers are kept)
     if (status === "active") await syncTodayTargets();
+    // A removed member may have been the last one everybody was waiting for
+    if (status === "rejected") {
+      const open = await db.select({ id: schema.rounds.id }).from(schema.rounds).where(isNull(schema.rounds.revealedAt));
+      for (const r of open) await revealIfAllPlayed(r.id);
+    }
     revalidatePath("/mod");
     revalidatePath("/", "layout");
   });

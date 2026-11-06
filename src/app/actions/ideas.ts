@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireActiveUser, requireModerator } from "@/lib/permissions";
@@ -35,12 +35,15 @@ export async function updateIdea(id: string, input: { title: string; description
     await rateLimit("modAction", mod.id);
     const parsed = ideaSchema.safeParse(input);
     if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message);
-    const res = await db
+    const ideaId = z.string().uuid().safeParse(id);
+    if (!ideaId.success) throw badRequest();
+    const [idea] = await db.select({ usedAt: schema.ideas.usedAt }).from(schema.ideas).where(eq(schema.ideas.id, ideaId.data)).limit(1);
+    if (!idea) throw notFound();
+    if (idea.usedAt) throw badRequest("Cette idée a déjà été jouée, elle ne peut plus être modifiée");
+    await db
       .update(schema.ideas)
       .set({ title: parsed.data.title, description: parsed.data.description || null })
-      .where(eq(schema.ideas.id, z.string().uuid().parse(id)))
-      .returning({ id: schema.ideas.id });
-    if (!res.length) throw notFound();
+      .where(and(eq(schema.ideas.id, ideaId.data), isNull(schema.ideas.usedAt)));
     await audit(mod.id, "idea.update", "idea", id, parsed.data);
     revalidatePath("/mod");
   });

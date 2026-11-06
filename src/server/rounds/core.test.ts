@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { aggregate } from "./aggregate";
+import { aggregate, computeStats } from "./aggregate";
 import { canSeeResults } from "./visibility";
 import { validatePlacements } from "./submit";
 import { nextStreak, displayStreak } from "@/server/streaks";
 import { scoreToTier } from "@/lib/tiers";
+import { isDayKey } from "@/lib/dates";
 
 describe("scoreToTier", () => {
   it("rounds to the nearest tier, .5 up", () => {
@@ -96,5 +97,56 @@ describe("streaks", () => {
   it("displays 0 once a round was missed", () => {
     expect(displayStreak({ streak: 5, lastPlayed: "2026-11-03", currentRoundDate: "2026-11-05", previousRoundDate: "2026-11-04" })).toBe(0);
     expect(displayStreak({ streak: 5, lastPlayed: "2026-11-04", currentRoundDate: "2026-11-05", previousRoundDate: "2026-11-04" })).toBe(5);
+  });
+});
+
+describe("isDayKey", () => {
+  it("accepts real calendar dates only", () => {
+    expect(isDayKey("2026-11-05")).toBe(true);
+    expect(isDayKey("2028-02-29")).toBe(true);
+    expect(isDayKey("2026-02-31")).toBe(false);
+    expect(isDayKey("2026-13-01")).toBe(false);
+    expect(isDayKey("2026-1-5")).toBe(false);
+  });
+});
+
+describe("computeStats", () => {
+  // a rates: a=S(5) b=F(0) ; b rates: a=B(3) b=B(3)
+  const votes = [
+    { voterId: "a", targetId: "a", tier: "S" as const },
+    { voterId: "a", targetId: "b", tier: "F" as const },
+    { voterId: "b", targetId: "a", tier: "B" as const },
+    { voterId: "b", targetId: "b", tier: "B" as const },
+  ];
+  const s = computeStats(votes);
+
+  it("computes E[X] and Var[X] over all votes", () => {
+    expect(s.mean).toBe(2.75); // (5+0+3+3)/4
+    expect(s.variance).toBe(3.19); // mean of squared deviations
+    expect(s.stddev).toBe(1.79);
+  });
+
+  it("measures consensus from per-member spread", () => {
+    // σ(a)=1, σ(b)=1.5 → avg 1.25 → 1 - 1.25/2.5 = 50 %
+    expect(s.avgSpread).toBe(1.25);
+    expect(s.consensus).toBe(50);
+  });
+
+  it("ranks voters: generous / harsh / contrarian / ego", () => {
+    expect(s.generous?.voterId).toBe("b"); // gave 3,3 vs 5,0
+    expect(s.harsh?.voterId).toBe("a");
+    // a and b are exactly as far from the consensus here (rmse ≈ 1.27 each)
+    expect(s.voters.find((v) => v.voterId === "a")?.rmse).toBe(s.voters.find((v) => v.voterId === "b")?.rmse);
+    expect(s.ego?.voterId).toBe("b"); // b: 3 for himself vs 0 from a → +3 (a: +2)
+    expect(s.modest?.voterId).toBe("a");
+    expect(s.voters.find((v) => v.voterId === "a")?.selfBias).toBe(2);
+    expect(s.voters.find((v) => v.voterId === "b")?.selfBias).toBe(3); // b: 3 vs a's 0
+  });
+
+  it("handles a round without votes", () => {
+    const e = computeStats([]);
+    expect(e.mean).toBe(0);
+    expect(e.consensus).toBe(100);
+    expect(e.generous).toBeNull();
   });
 });

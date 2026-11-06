@@ -8,43 +8,58 @@ const INTERVAL_MS = 2000;
 /**
  * Polls a tiny version fingerprint and re-renders the page (server side, so
  * every visibility rule is re-applied) only when something actually changed.
- * Pauses when the tab is hidden, catches up instantly when it comes back.
+ * `initial` is the version the page was rendered with, so nothing that
+ * happens before the first poll is missed. Pauses when the tab is hidden.
  */
-export function LiveRefresh({ roundId }: { roundId?: string }) {
+export function LiveRefresh({ roundId, initial }: { roundId?: string; initial: string }) {
   const router = useRouter();
-  const last = useRef<string | null>(null);
+  const last = useRef(initial);
+
+  // a fresh server render brings a fresh baseline
+  useEffect(() => {
+    last.current = initial;
+  }, [initial]);
 
   useEffect(() => {
     let stopped = false;
+    let inFlight = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let ctrl: AbortController | undefined;
     const url = roundId ? `/api/live?round=${roundId}` : "/api/live";
 
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      if (!stopped) timer = setTimeout(tick, INTERVAL_MS);
+    };
+
     const tick = async () => {
-      if (stopped) return;
+      if (stopped || inFlight) return;
       if (document.visibilityState === "visible") {
+        inFlight = true;
         ctrl = new AbortController();
         try {
           const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
           if (res.ok) {
             const { v } = (await res.json()) as { v: string };
-            if (last.current !== null && v !== last.current) router.refresh();
-            last.current = v;
+            if (v !== last.current) {
+              last.current = v;
+              router.refresh();
+            }
           }
         } catch {
           /* offline / aborted: retry next tick */
+        } finally {
+          inFlight = false;
         }
       }
-      if (!stopped) timer = setTimeout(tick, INTERVAL_MS);
+      schedule();
     };
 
     const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      if (timer) clearTimeout(timer);
-      tick();
+      if (document.visibilityState === "visible" && !inFlight) tick();
     };
 
-    tick();
+    schedule();
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       stopped = true;

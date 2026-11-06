@@ -52,6 +52,7 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
     return { ok: true, data };
   } catch (err) {
     if (err instanceof HttpError) return { ok: false, error: err.message };
+    if (err instanceof Error && err.name === "ZodError") return { ok: false, error: "Requête invalide" };
     // Next.js redirect()/notFound() must propagate
     if (err && typeof err === "object" && "digest" in err) throw err;
     console.error(err);

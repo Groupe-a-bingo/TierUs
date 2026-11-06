@@ -7,8 +7,10 @@ import { pageUser, isModerator } from "@/lib/permissions";
 import { formatDayFr, isDayKey, dayKey } from "@/lib/dates";
 import { TIERS, emptyRows } from "@/lib/tiers";
 import { db, schema } from "@/db";
-import { getAggregate, getCurrentRound, getMyPlacements, getProgress, getRoundByDate, getSubmissionsDetail, getTargets, hasSubmitted } from "@/server/rounds/queries";
+import { getMyPlacements, getVotes, getProgress, getRoundByDate, getSubmissionsDetail, getTargets, hasSubmitted } from "@/server/rounds/queries";
 import { canSeeResults } from "@/server/rounds/visibility";
+import { aggregate, computeStats } from "@/server/rounds/aggregate";
+import { roundVersion } from "@/server/live";
 import { missingTargetsFor } from "@/server/rounds/targets";
 import { getComments, getPostReactions } from "@/server/comments";
 import { TierEditor } from "@/components/tier-board/tier-editor";
@@ -33,13 +35,13 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
   if (!found) notFound();
   const { round, idea } = found;
 
-  const [current, targets, submitted, progress] = await Promise.all([
-    getCurrentRound(),
+  const [targets, submitted, progress] = await Promise.all([
     getTargets(round.id),
     hasSubmitted(round.id, u.id),
     getProgress(round.id),
   ]);
-  const isCurrent = current?.id === round.id;
+  // "current" = today's round (if no round was drawn today, yesterday's is an archive)
+  const isCurrent = round.date === dayKey();
   const isToday = round.date === dayKey();
   const revealed = !!round.revealedAt;
   const visible = canSeeResults({ revealed, isCurrent, hasSubmitted: submitted });
@@ -50,7 +52,7 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
 
   const [missingIds, resultsBundle, playedIds, thread] = await Promise.all([
     submitted ? missingTargetsFor(round.id, u.id) : Promise.resolve([] as string[]),
-    visible ? Promise.all([getAggregate(round.id), getSubmissionsDetail(round.id)]) : null,
+    visible ? Promise.all([getVotes(round.id), getSubmissionsDetail(round.id)]) : null,
     !visible && submitted
       ? db.select({ voterId: schema.submissions.voterId }).from(schema.submissions).where(eq(schema.submissions.roundId, round.id)).then((r) => r.map((x) => x.voterId))
       : Promise.resolve([] as string[]),
@@ -68,7 +70,8 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
   let results: ResultsData | null = null;
   let extraMembers: { id: string; name: string; avatarFileId: string | null }[] = [];
   if (resultsBundle) {
-    const [agg, detail] = resultsBundle;
+    const [votes, detail] = resultsBundle;
+    const agg = aggregate(votes);
     const average = emptyRows();
     for (const t of TIERS) average[t] = agg.rows[t].map((r) => r.targetId);
     results = {
@@ -82,6 +85,8 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
         return { voterId: d.voterId, isLate: d.isLate, rows };
       }),
       myId: u.id,
+      stats: computeStats(votes),
+      targets: agg.results.map((r) => ({ targetId: r.targetId, mean: r.mean, stddev: r.stddev, tier: r.tier, distribution: r.distribution })),
     };
     // voters may not be in the snapshot (joined later): load their profiles too
     const extra = detail.map((d) => d.voterId).filter((id) => !targets.some((t) => t.id === id));
@@ -96,7 +101,7 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
   return (
     <div className="flex flex-col gap-6 lg:grid lg:h-post lg:grid-cols-12 lg:gap-10">
       {/* desktop: the page itself never scrolls, each column scrolls on its own */}
-      <LiveRefresh roundId={round.id} />
+      <LiveRefresh roundId={round.id} initial={await roundVersion(round.id)} />
 
       {/* while playing, the editor gets the full width on desktop */}
       <div className={showEditor ? "flex flex-col gap-6 lg:col-span-12 lg:min-h-0 lg:overflow-y-auto lg:scrollbar-theme lg:pr-2 lg:pb-3" : "flex flex-col gap-6 lg:col-span-7 lg:min-h-0 lg:overflow-y-auto lg:scrollbar-theme lg:pr-2 lg:pb-3"}>
@@ -161,7 +166,7 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
       <aside className={showEditor && !thread ? "hidden" : "flex flex-col gap-4 lg:col-span-5 lg:min-h-0 lg:overflow-hidden lg:rounded-3xl lg:border-2 lg:border-board-edge lg:bg-board lg:p-6"}>
         {thread ? (
           <>
-            <ReactionBar roundId={round.id} reactions={thread[1]} compact />
+            <ReactionBar roundId={round.id} reactions={thread[1]} />
             <Comments roundId={round.id} comments={thread[0]} me={{ id: u.id, name: u.name, avatarFileId: u.avatarFileId }} />
           </>
         ) : (

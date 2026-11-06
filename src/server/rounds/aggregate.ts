@@ -66,3 +66,91 @@ export function aggregate(votes: Vote[]): Aggregate {
 
   return { rows, results, controversial, unanimous, voters: voters.size };
 }
+
+/* ---------------- statistics ---------------- */
+
+export type VoterStats = {
+  voterId: string;
+  /** E[score] this voter gave (generosity) */
+  mean: number;
+  /** root-mean-square distance between this voter's scores and the group means */
+  rmse: number;
+  /** self score − mean of what the others gave them (null if they didn't rate themselves / nobody else did) */
+  selfBias: number | null;
+};
+
+export type BoardStats = {
+  votes: number;
+  /** E[X] over every single vote */
+  mean: number;
+  /** Var[X] and σ over every single vote */
+  variance: number;
+  stddev: number;
+  /** average per-member σ: how much people disagree on a given member */
+  avgSpread: number;
+  /** 0–100: 100 = everyone placed everyone identically */
+  consensus: number;
+  voters: VoterStats[];
+  generous: VoterStats | null;
+  harsh: VoterStats | null;
+  aligned: VoterStats | null;
+  contrarian: VoterStats | null;
+  ego: VoterStats | null;
+  modest: VoterStats | null;
+};
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+
+/**
+ * Expectation / variance style stats on a round. Scores: S=5 … F=0.
+ * - board: E[X], Var[X], σ over all votes, plus how consensual the round was
+ * - voters: generosity (mean given), distance to the consensus, self-bias
+ */
+export function computeStats(votes: Vote[]): BoardStats {
+  const scores = votes.map((v) => TIER_SCORE[v.tier]);
+  const mean = avg(scores);
+  const variance = avg(scores.map((s) => (s - mean) ** 2));
+
+  const byTarget = new Map<string, number[]>();
+  for (const v of votes) byTarget.set(v.targetId, [...(byTarget.get(v.targetId) ?? []), TIER_SCORE[v.tier]]);
+  const targetMean = new Map([...byTarget].map(([id, xs]) => [id, avg(xs)]));
+  const spreads = [...byTarget.values()].filter((xs) => xs.length >= 2).map((xs) => {
+    const m = avg(xs);
+    return Math.sqrt(avg(xs.map((x) => (x - m) ** 2)));
+  });
+  const avgSpread = avg(spreads);
+  // max possible σ on a 0–5 scale is 2.5 (half at S, half at F)
+  const consensus = spreads.length ? Math.round((1 - avgSpread / 2.5) * 100) : 100;
+
+  const byVoter = new Map<string, Vote[]>();
+  for (const v of votes) byVoter.set(v.voterId, [...(byVoter.get(v.voterId) ?? []), v]);
+  const voters: VoterStats[] = [...byVoter].map(([voterId, vs]) => {
+    const given = vs.map((v) => TIER_SCORE[v.tier]);
+    const rmse = Math.sqrt(avg(vs.map((v) => (TIER_SCORE[v.tier] - (targetMean.get(v.targetId) ?? 0)) ** 2)));
+    const self = vs.find((v) => v.targetId === voterId);
+    const others = votes.filter((v) => v.targetId === voterId && v.voterId !== voterId).map((v) => TIER_SCORE[v.tier]);
+    const selfBias = self && others.length ? TIER_SCORE[self.tier] - avg(others) : null;
+    return { voterId, mean: round2(avg(given)), rmse: round2(rmse), selfBias: selfBias === null ? null : round2(selfBias) };
+  });
+
+  const pick = (xs: VoterStats[], score: (v: VoterStats) => number) =>
+    xs.length >= 2 ? xs.reduce((best, v) => (score(v) > score(best) ? v : best)) : null;
+  const withSelf = voters.filter((v) => v.selfBias !== null);
+
+  return {
+    votes: scores.length,
+    mean: round2(mean),
+    variance: round2(variance),
+    stddev: round2(Math.sqrt(variance)),
+    avgSpread: round2(avgSpread),
+    consensus,
+    voters,
+    generous: pick(voters, (v) => v.mean),
+    harsh: pick(voters, (v) => -v.mean),
+    aligned: pick(voters, (v) => -v.rmse),
+    contrarian: pick(voters, (v) => v.rmse),
+    ego: withSelf.length ? withSelf.reduce((b, v) => (v.selfBias! > b.selfBias! ? v : b)) : null,
+    modest: withSelf.length ? withSelf.reduce((b, v) => (v.selfBias! < b.selfBias! ? v : b)) : null,
+  };
+}

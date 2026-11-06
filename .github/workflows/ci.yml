@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  NODE_VERSION: "22"
+
+jobs:
+  checks:
+    name: Lint · types · unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Lint (Next + @shadcn/lint)
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm run test:unit
+
+  integration:
+    name: Integration tests (Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tierus
+          POSTGRES_PASSWORD: tierus
+          POSTGRES_DB: tierus_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tierus" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://tierus:tierus@localhost:5432/tierus_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Integration tests (draw, submissions, reveal, board, live, rate limit)
+        run: npm run test:integration
+
+  e2e:
+    name: Build + HTTP tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tierus
+          POSTGRES_PASSWORD: tierus
+          POSTGRES_DB: tierus_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tierus" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://tierus:tierus@localhost:5432/tierus_test
+      TEST_DATABASE_URL: postgres://tierus:tierus@localhost:5432/tierus_test
+      BETTER_AUTH_SECRET: ci-secret-ci-secret-ci-secret-ci-secret-1234
+      BETTER_AUTH_URL: http://localhost:3020
+      CLIENT_IP_HEADER: x-test-ip
+      STORAGE_DIR: /tmp/tierus-storage
+      E2E_BASE_URL: http://localhost:3020
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Migrate
+        run: npx drizzle-kit migrate
+      - name: Build
+        run: npm run build
+      - name: Start the app
+        run: |
+          npx next start -p 3020 > app.log 2>&1 &
+          for _ in $(seq 1 60); do curl -sf http://localhost:3020/login > /dev/null && exit 0; sleep 1; done
+          cat app.log; exit 1
+      - name: HTTP tests (security headers, access control, rate limit, uploads, pages)
+        run: npm run test:http
+      - name: App log
+        if: failure()
+        run: cat app.log
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # report only: known Next/PostCSS advisories need the Next 16 upgrade
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm audit --omit=dev --audit-level=high

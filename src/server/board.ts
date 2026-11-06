@@ -1,6 +1,7 @@
 import { desc, eq, ilike, inArray, sql, and, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { aggregate, type Vote } from "./rounds/aggregate";
+import { dayKey } from "@/lib/dates";
 
 const { rounds, ideas, comments, reactions, submissions, placements, roundTargets } = schema;
 
@@ -66,7 +67,7 @@ export async function listBoard(viewerId: string, opts: { q?: string; limit?: nu
   ]);
 
   const mineSet = new Set(mine.map((m) => m.roundId));
-  const currentId = base[0].id;
+  const today = dayKey(); // results of today's round stay hidden until you play
   const votesByRound = new Map<string, Vote[]>();
   for (const v of votes) {
     const arr = votesByRound.get(v.roundId) ?? [];
@@ -77,7 +78,7 @@ export async function listBoard(viewerId: string, opts: { q?: string; limit?: nu
   return base.map((r) => {
     const revealed = !!r.revealedAt;
     const isMine = mineSet.has(r.id);
-    const visible = revealed && (r.id !== currentId || isMine);
+    const visible = revealed && (r.date !== today || isMine);
     const p = progress.find((x) => x.roundId === r.id);
     return {
       id: r.id,

@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
+/* real mouse/trackpad: only there may things be hidden until hover */
+@custom-variant can-hover (@media (hover: hover) and (pointer: fine));
 
 /*
  * TierUs — "arcade tier board"
@@ -260,4 +262,21 @@ html {
     background: var(--board-row);
     border-radius: 999px;
   }
+}
+
+/* respect the OS "reduce motion" setting */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* no iOS long-press callout / text magnifier on chat bubbles (we show our own menu) */
+@utility no-callout {
+  -webkit-touch-callout: none;
 }

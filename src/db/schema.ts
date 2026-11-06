@@ -12,6 +12,7 @@ import {
   index,
   primaryKey,
   check,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -38,7 +39,7 @@ export const user = pgTable("user", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   role: roleEnum("role").notNull().default("member"),
   status: userStatusEnum("status").notNull().default("pending"),
-  avatarFileId: text("avatar_file_id"),
+  avatarFileId: text("avatar_file_id").references((): AnyPgColumn => files.id, { onDelete: "set null" }),
   streak: integer("streak").notNull().default(0),
   lastPlayedRoundDate: date("last_played_round_date"),
 });
@@ -148,7 +149,11 @@ export const rounds = pgTable(
     revealReason: revealReasonEnum("reveal_reason"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("rounds_date_uq").on(t.date)],
+  (t) => [
+    uniqueIndex("rounds_date_uq").on(t.date),
+    // the worker looks for open rounds every minute
+    index("rounds_open_idx").on(t.startsAt).where(sql`${t.revealedAt} is null`),
+  ],
 );
 
 export const roundTargets = pgTable(
@@ -206,7 +211,7 @@ export const comments = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     body: text("body").notNull(),
-    replyToId: text("reply_to_id"),
+    replyToId: text("reply_to_id").references((): AnyPgColumn => comments.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
@@ -232,6 +237,7 @@ export const reactions = pgTable(
   },
   (t) => [
     uniqueIndex("reactions_uq").on(t.roundId, sql`coalesce(${t.commentId}, '')`, t.userId, t.emoji),
+    index("reactions_comment_idx").on(t.commentId),
   ],
 );
 

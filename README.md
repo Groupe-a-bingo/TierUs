@@ -14,7 +14,15 @@ npm run dev                   # http://localhost:3010
 npm run worker                # dans un autre terminal : tirage à minuit + révélation à 24h
 ```
 
-Le compte inscrit avec `ADMIN_EMAIL` devient automatiquement admin et est validé. Les autres comptes restent `pending` jusqu'à ce qu'un modérateur les valide dans `/mod`, et une photo de profil est obligatoire pour être validé.
+Tous les comptes s'inscrivent en `pending`. Pour créer le premier admin, inscris-toi puis, sur le serveur :
+
+```bash
+npm run admin:promote -- ton@email.fr
+```
+
+(Un admin n'est jamais attribué par l'inscription elle-même : sinon n'importe qui pourrait réclamer l'email admin en premier.) Ensuite, les modérateurs valident les nouveaux comptes dans `/mod` ; une photo de profil est obligatoire pour être validé.
+
+**Derrière un proxy** (Cloudflare, nginx…), mets `CLIENT_IP_HEADER` sur l'en-tête qui porte la vraie IP du client (`cf-connecting-ip`, `x-real-ip`…), sinon le rate limit par IP peut être contourné en forgeant `X-Forwarded-For`.
 
 ## Scripts
 
@@ -40,7 +48,7 @@ Le compte inscrit avec `ADMIN_EMAIL` devient automatiquement admin et est valid�
 ## Production
 
 - Retirer le mapping de port de `db` dans `docker-compose.yml`.
-- Renseigner `TRUSTED_PROXIES` avec les IP du reverse proxy.
+- Renseigner `CLIENT_IP_HEADER` (ou à défaut `TRUSTED_PROXIES`, IP exactes du reverse proxy).
 - Passer `BETTER_AUTH_URL` en HTTPS.
 - Lancer `next start` et le worker comme deux process séparés.
 - Sauvegarder le volume `pgdata` et le dossier `./storage`.

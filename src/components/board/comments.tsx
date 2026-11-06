@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
-import { CornerDownRight, Send, Trash2, X } from "lucide-react";
+import { CornerDownRight, Reply, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { addComment, deleteComment } from "@/app/actions/social";
-import { ReactionBar, hoverOnly, type ReactionSummary } from "./reaction-bar";
+import { ReactionChips, ReactionPicker, useReactions, type ReactionSummary } from "./reaction-bar";
+import { cva } from "class-variance-authority";
+import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/board/empty-state";
+import { useChatGestures } from "./chat-gestures";
+import { MessageSheet } from "./message-sheet";
+
+const LIKE = "❤️" as const;
 
 export type CommentView = {
   id: string;
@@ -21,14 +27,111 @@ export type CommentView = {
   pending?: boolean;
 };
 
-const dateFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
-const hourFmt = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
+// fixed app timezone so the server render and the browser always agree
+const TZ = "Europe/Paris";
+const dateFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", timeZone: TZ });
+const hourFmt = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
 /** "5 nov 22:58" — no abbreviation dot, no comma */
 const time = (iso: string) => {
   const d = new Date(iso);
   return `${dateFmt.format(d).replace(".", "")} ${hourFmt.format(d)}`;
 };
+
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+/** `b` continues `a`'s group: same author, within 5 min, not a reply. */
+const continues = (a: CommentView, b: CommentView) =>
+  a.author.id === b.author.id && !b.replyTo && new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() < GROUP_WINDOW_MS;
+
+const messageRow = cva("group flex gap-3", {
+  variants: { grouped: { true: "mt-1", false: "mt-4 first:mt-0" } },
+});
+
+const bubble = cva("w-fit max-w-full min-w-0 rounded-2xl bg-secondary px-3 py-2 text-base break-words whitespace-pre-wrap", {
+  variants: { grouped: { true: "rounded-l-md", false: "rounded-tl-sm" } },
+});
+
+
+// mouse: quick icons on hover · touch screens use gestures instead (see useChatGestures)
+const actions = "hidden shrink-0 items-center gap-0.5 can-hover:flex can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-within:opacity-100";
+const iconBtn = "flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-90";
+
+function Message({ c, roundId, grouped, onReply, onDelete }: { c: CommentView; roundId: string; grouped: boolean; onReply: () => void; onDelete: () => void }) {
+  const r = useReactions(roundId, c.id, c.reactions);
+  const live = !c.deleted && !c.pending;
+  const [sheet, setSheet] = useState(false);
+  const [burst, setBurst] = useState(0);
+
+  // phone gestures: swipe right → reply · double tap → ❤️ · long press → menu
+  const like = () => {
+    if (!r.list.some((x) => x.emoji === LIKE && x.mine)) r.toggle(LIKE);
+    setBurst((n) => n + 1);
+  };
+  const g = useChatGestures({ enabled: live, onReply, onDoubleTap: like, onLongPress: () => setSheet(true) });
+
+  return (
+    <li className={cn(messageRow({ grouped }), c.pending && "animate-rise opacity-60")}>
+      {grouped ? <span className="w-8 shrink-0" aria-hidden /> : <AvatarTile name={c.author.name} fileId={c.author.avatarFileId} size="sm" />}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {c.replyTo && (
+          <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+            <CornerDownRight className="size-3 shrink-0" />
+            <span className="font-semibold">{c.replyTo.author}</span>
+            <span className="truncate">{c.replyTo.body}</span>
+          </p>
+        )}
+        {!grouped && (
+          <p className="text-sm">
+            <span className="font-display font-bold">{c.author.name}</span>{" "}
+            <span className="text-xs text-muted-foreground">{time(c.createdAt)}</span>
+          </p>
+        )}
+        <div ref={g.target} className="relative flex min-w-0 touch-pan-y items-center gap-1 select-none no-callout can-hover:select-auto">
+          {/* reply arrow revealed behind the bubble while swiping */}
+          <span ref={g.hint} className="pointer-events-none absolute left-0 flex size-8 items-center justify-center text-primary opacity-0" aria-hidden>
+            <Reply className="size-5" />
+          </span>
+          <div ref={g.slide} className="relative flex min-w-0 items-center gap-1">
+            {/* Plain text only: React escapes it, no HTML/markdown rendering */}
+            <p className={bubble({ grouped })} title={grouped ? time(c.createdAt) : undefined}>
+              {c.deleted ? <em className="text-muted-foreground">Message supprimé</em> : c.body}
+            </p>
+            {burst > 0 && (
+              <span key={burst} className="pointer-events-none absolute -top-2 left-2 animate-pop-in text-2xl" aria-hidden>
+                ❤️
+              </span>
+            )}
+          </div>
+          {live && (
+            <div className={actions}>
+              <ReactionPicker available={r.available} toggle={r.toggle} size="icon" placement="auto" />
+              <button type="button" aria-label="Répondre" title="Répondre" className={iconBtn} onClick={onReply}>
+                <Reply className="size-4" />
+              </button>
+              {c.canDelete && (
+                <button type="button" aria-label="Supprimer" title="Supprimer" className={iconBtn} onClick={onDelete}>
+                  <Trash2 className="size-4" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        {live && <ReactionChips list={r.list} toggle={r.toggle} />}
+      </div>
+      {live && (
+        <MessageSheet
+          open={sheet}
+          onClose={() => setSheet(false)}
+          body={c.body}
+          reactions={r.list}
+          onReact={r.toggle}
+          onReply={onReply}
+          onDelete={c.canDelete ? onDelete : undefined}
+        />
+      )}
+    </li>
+  );
+}
 
 type Op = { kind: "add"; comment: CommentView } | { kind: "delete"; id: string };
 
@@ -103,52 +206,25 @@ export function Comments({
       {list.length === 0 && <EmptyState>Lance le débat 👇</EmptyState>}
 
       {/* desktop: the chat scrolls inside the panel, composer stays at the bottom */}
-      <div ref={scroller} className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:scrollbar-theme lg:scrollbar-track-visible lg:pr-2">
-      <ul className="flex flex-col gap-4">
-        {list.map((c) => (
-          <li key={c.id} className={c.pending ? "group flex animate-rise gap-3 opacity-60" : "group flex gap-3"}>
-            <AvatarTile name={c.author.name} fileId={c.author.avatarFileId} size="sm" shape="round" />
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              {c.replyTo && (
-                <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
-                  <CornerDownRight className="size-3 shrink-0" />
-                  <span className="font-semibold">{c.replyTo.author}</span>
-                  <span className="truncate">{c.replyTo.body}</span>
-                </p>
-              )}
-              <p className="text-sm">
-                <span className="font-display font-bold">{c.author.name}</span>{" "}
-                <span className="text-xs text-muted-foreground">{time(c.createdAt)}</span>
-              </p>
-              {/* Plain text only: React escapes it, no HTML/markdown rendering */}
-              <p className="rounded-2xl rounded-tl-sm bg-secondary px-3 py-2 text-base break-words whitespace-pre-wrap">
-                {c.deleted ? <em className="text-muted-foreground">Message supprimé</em> : c.body}
-              </p>
-              {!c.deleted && !c.pending && (
-                <div className="flex flex-wrap items-center gap-1">
-                  <ReactionBar roundId={roundId} commentId={c.id} reactions={c.reactions} compact pickerOnHover />
-                  <span className={hoverOnly}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setReplyTo(c);
-                      input.current?.focus();
-                    }}
-                  >
-                    Répondre
-                  </Button>
-                  {c.canDelete && (
-                    <Button variant="ghost" size="icon-sm" aria-label="Supprimer" onClick={() => remove(c.id)}>
-                      <Trash2 />
-                    </Button>
-                  )}
-                  </span>
-                </div>
-              )}
-            </div>
-          </li>
-        ))}
+      <div ref={scroller} data-scroll-box className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:scrollbar-theme lg:scrollbar-track-visible lg:pr-2">
+      <ul className="flex flex-col">
+        {list.map((c, i) => {
+          const prev = list[i - 1];
+          return (
+            <Message
+              key={c.id}
+              c={c}
+              roundId={roundId}
+              // consecutive messages from the same person stick together (no header)
+              grouped={!!prev && continues(prev, c)}
+              onReply={() => {
+                setReplyTo(c);
+                input.current?.focus();
+              }}
+              onDelete={() => remove(c.id)}
+            />
+          );
+        })}
       </ul>
 
       </div>
@@ -170,6 +246,7 @@ export function Comments({
             </button>
           </div>
         )}
+        <p className="px-2 text-xs text-muted-foreground can-hover:hidden">Glisse un message → pour répondre · double-tap ❤️ · appui long pour plus</p>
         <div className="flex items-end gap-2">
           <textarea
             ref={input}

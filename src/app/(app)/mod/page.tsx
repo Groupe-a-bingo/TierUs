@@ -78,7 +78,7 @@ export default async function ModPage() {
       <Card>
         <CardHeader>
           <CardTitle>Inscriptions en attente ({pending.length})</CardTitle>
-          <CardDescription>Une photo de profil est requise avant validation.</CardDescription>
+          <CardDescription>Sans photo, le membre apparaîtra avec ses initiales.</CardDescription>
         </CardHeader>
         <CardContent>
           <PendingUsers users={pending} />

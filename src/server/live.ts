@@ -6,7 +6,7 @@ import { db } from "@/db";
  * Clients poll it and only re-render when it moves. Works behind any proxy
  * (Cloudflare quick tunnels buffer SSE, so streaming isn't reliable).
  */
-export async function roundVersion(roundId: string): Promise<string> {
+async function computeRoundVersion(roundId: string): Promise<string> {
   const { rows } = await db.execute<{ v: string }>(sql`
     select md5(concat_ws('|',
       (select coalesce(revealed_at::text, '') || idea_id from rounds where id = ${roundId}),
@@ -20,10 +20,11 @@ export async function roundVersion(roundId: string): Promise<string> {
   return rows[0]?.v ?? "";
 }
 
-export async function boardVersion(): Promise<string> {
+async function computeBoardVersion(): Promise<string> {
   const { rows } = await db.execute<{ v: string }>(sql`
     select md5(concat_ws('|',
-      (select count(*) || coalesce(max(created_at)::text, '') || count(revealed_at) from rounds),
+      (select count(*) || coalesce(max(created_at)::text, '') || count(revealed_at) || coalesce(md5(string_agg(idea_id, ',' order by date)), '') from rounds),
+      (select coalesce(max(updated_at)::text, '') from "user"),
       (select count(*) || coalesce(max(submitted_at)::text, '') from submissions),
       (select count(*) || coalesce(max(created_at)::text, '') || count(deleted_at) from comments),
       (select count(*) || coalesce(max(created_at)::text, '') from reactions),
@@ -31,4 +32,31 @@ export async function boardVersion(): Promise<string> {
     )) as v
   `);
   return rows[0]?.v ?? "";
+}
+
+/*
+ * Shared short cache: every client polls every 2s, but the database answers
+ * at most once per 1.5s per scope, whatever the number of viewers.
+ */
+const TTL_MS = 1500;
+const cache = new Map<string, { at: number; v: Promise<string> }>();
+
+function cached(key: string, compute: () => Promise<string>): Promise<string> {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.v;
+  const v = compute().catch((e) => {
+    cache.delete(key);
+    throw e;
+  });
+  cache.set(key, { at: Date.now(), v });
+  if (cache.size > 500) cache.delete(cache.keys().next().value!);
+  return v;
+}
+
+export const roundVersion = (roundId: string) => cached(`r:${roundId}`, () => computeRoundVersion(roundId));
+export const boardVersion = () => cached("board", computeBoardVersion);
+
+/** Tests only: forget cached versions. */
+export function clearLiveCache() {
+  cache.clear();
 }

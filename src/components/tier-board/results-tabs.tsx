@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { TierResult } from "./tier-result";
 import { AvatarTile } from "./avatar-tile";
 import type { Member } from "./types";
+import type { BoardStats } from "@/server/rounds/aggregate";
+import { StatsView, type TargetStat } from "./stats-view";
 import { EmptyState } from "@/components/board/empty-state";
 
 export type ResultsData = {
@@ -17,9 +19,11 @@ export type ResultsData = {
   unanimous: { targetId: string; tier: Tier }[];
   voters: { voterId: string; isLate: boolean; rows: Record<Tier, string[]> }[];
   myId: string;
+  stats: BoardStats;
+  targets: TargetStat[];
 };
 
-type View = "avg" | "lists";
+type View = "avg" | "lists" | "stats";
 
 const segment = cva(
   "flex-1 rounded-xl border-2 py-2.5 font-display text-sm font-bold transition-colors duration-100 active:scale-95",
@@ -81,7 +85,13 @@ function Carousel({ children }: { children: React.ReactNode }) {
     if (!el) return;
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    // new stories arriving (live refresh) change the scroll width, not the box
+    const mo = new MutationObserver(update);
+    mo.observe(el, { childList: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, []);
   const scroll = (dir: 1 | -1) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.8, behavior: "smooth" });
   return (
@@ -116,13 +126,16 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
   const order = [...(mine ? [mine] : []), ...others];
 
   const [view, setView] = useState<View>("avg");
-  const [idx, setIdx] = useState(0);
+  // track the selected person, not a position: a late answer can reorder the list
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
+  const found = order.findIndex((v) => v.voterId === selectedId);
+  const idx = found >= 0 ? found : 0;
 
   const current = order[idx];
   const go = (i: number) => {
     if (i < 0 || i >= order.length) return;
-    setIdx(i);
+    setSelectedId(order[i].voterId);
     setSeen((s) => new Set(s).add(order[i].voterId));
   };
   const open = () => {
@@ -142,6 +155,9 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
         </button>
         <button type="button" role="tab" aria-selected={view === "lists"} className={segment({ active: view === "lists" })} onClick={open}>
           Tier lists · {order.length}
+        </button>
+        <button type="button" role="tab" aria-selected={view === "stats"} className={segment({ active: view === "stats" })} onClick={() => setView("stats")}>
+          Stats
         </button>
       </div>
 
@@ -223,13 +239,14 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
                 {/* tap left / right half to go back / forward, like stories */}
                 <div className="relative">
                   <TierResult key={current.voterId} rows={current.rows} members={byId} />
-                  <button type="button" aria-label="Précédente" className={cn("absolute inset-y-0 left-0 w-1/3", idx === 0 && "pointer-events-none")} onClick={() => go(idx - 1)} />
-                  <button type="button" aria-label="Suivante" className={cn("absolute inset-y-0 right-0 w-2/3", idx === order.length - 1 && "pointer-events-none")} onClick={() => go(idx + 1)} />
+                  <button type="button" tabIndex={-1} aria-hidden className={cn("absolute inset-y-0 left-0 w-1/3", idx === 0 && "pointer-events-none")} onClick={() => go(idx - 1)} />
+                  <button type="button" tabIndex={-1} aria-hidden className={cn("absolute inset-y-0 right-0 w-2/3", idx === order.length - 1 && "pointer-events-none")} onClick={() => go(idx + 1)} />
                 </div>
               </div>
             )}
           </div>
         ))}
+      {view === "stats" && <StatsView stats={data.stats} targets={data.targets} members={byId} />}
     </section>
   );
 }

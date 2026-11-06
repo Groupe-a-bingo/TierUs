@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
  * slightly punched up. Members without a photo get a tier-coloured tile.
  */
 const tileVariants = cva(
-  "relative flex shrink-0 items-center justify-center overflow-hidden font-display font-extrabold select-none",
+  "relative flex shrink-0 items-center justify-center overflow-hidden bg-secondary font-display font-extrabold select-none",
   {
     variants: {
       size: {

@@ -4,7 +4,8 @@ import { db, schema } from "@/db";
 import { TIERS } from "@/lib/tiers";
 import { badRequest, notFound, HttpError } from "@/lib/errors";
 import { nextStreak } from "@/server/streaks";
-import { getCurrentRound, getPreviousRoundDate, getRoundById, getTargets } from "./queries";
+import { getPreviousRoundDate, getRoundById, getTargets } from "./queries";
+import { dayKey } from "@/lib/dates";
 import { revealIfAllPlayed } from "./reveal";
 import { missingTargetsFor } from "./targets";
 
@@ -74,8 +75,8 @@ export async function submitTierList(voterId: string, raw: unknown) {
   const targets = await getTargets(round.id);
   validatePlacements(input.placements, targets.map((t) => t.id));
 
-  const current = await getCurrentRound();
-  const isCurrent = current?.id === round.id;
+  // streak only for today's round (late answers on archives never count)
+  const isCurrent = round.date === dayKey();
   const isLate = !!round.revealedAt;
 
   // normalise positions per tier (0..n) in the order given
