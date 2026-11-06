@@ -100,7 +100,7 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
       {/* while playing, the editor gets the full width on desktop */}
       <div className={showEditor ? "flex flex-col gap-6 lg:col-span-12" : "flex flex-col gap-6 lg:col-span-7"}>
       <header className="flex flex-col gap-3">
-        <Link href="/" className="flex w-fit items-center gap-1 rounded-full py-1 pr-3 text-sm font-semibold text-muted-foreground active:scale-95">
+        <Link href="/" className="flex w-fit items-center gap-1 rounded-full py-1 pr-3 text-sm font-semibold text-muted-foreground active:scale-95 lg:hidden">
           <ArrowLeft className="size-4" /> Board
         </Link>
         <div className="flex items-center gap-2 text-sm">
@@ -157,10 +157,10 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
       </div>
 
       {/* Desktop: the thread lives in a sticky side panel, like a Discord forum post */}
-      <aside className={showEditor && !thread ? "hidden" : "flex flex-col gap-4 lg:sticky lg:top-10 lg:col-span-5 lg:max-h-dvh lg:overflow-y-auto lg:rounded-3xl lg:border-2 lg:border-board-edge lg:bg-board lg:p-6"}>
+      <aside className={showEditor && !thread ? "hidden" : "flex flex-col gap-4 lg:sticky lg:top-10 lg:col-span-5 lg:max-h-dvh lg:overflow-y-auto lg:scroll-gutter-stable lg:rounded-3xl lg:border-2 lg:border-board-edge lg:bg-board lg:p-6"}>
         {thread ? (
           <>
-            <ReactionBar roundId={round.id} reactions={thread[1]} />
+            <ReactionBar roundId={round.id} reactions={thread[1]} compact />
             <Comments roundId={round.id} comments={thread[0]} me={{ id: u.id, name: u.name, avatarFileId: u.avatarFileId }} />
           </>
         ) : (

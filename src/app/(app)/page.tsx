@@ -3,10 +3,9 @@ import { Search } from "lucide-react";
 import { pageUser } from "@/lib/permissions";
 import { listBoard, membersById } from "@/server/board";
 import { PinnedPost, PostCard } from "@/components/board/post-card";
-import { StreakChip, Wordmark } from "@/components/board/wordmark";
 import { LiveRefresh } from "@/components/board/live-refresh";
 import { dayKey, formatDayFr } from "@/lib/dates";
-import { displayStreak } from "@/server/streaks";
+import { EmptyState } from "@/components/board/empty-state";
 
 export default async function BoardPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const u = await pageUser();
@@ -19,25 +18,13 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
   const pinned = !q && posts[0]?.date === dayKey() ? posts[0] : null;
   const archives = pinned ? posts.slice(1) : posts;
 
-  const streak = displayStreak({
-    streak: u.streak,
-    lastPlayed: u.lastPlayedRoundDate,
-    currentRoundDate: posts[0]?.date ?? null,
-    previousRoundDate: posts[1]?.date ?? null,
-  });
-
   return (
     <div className="flex flex-col gap-6">
       <LiveRefresh />
-      <header className="flex items-center justify-between">
-        <div className="lg:hidden">
-          <Wordmark />
-        </div>
-        <div className="hidden lg:block">
-          <p className="text-sm font-semibold text-muted-foreground capitalize">{formatDayFr(dayKey())}</p>
-          <h1 className="text-5xl font-extrabold">Le board</h1>
-        </div>
-        <StreakChip streak={streak} />
+      {/* phone: the sticky TierUs header (layout) is enough */}
+      <header className="hidden lg:block">
+        <p className="text-sm font-semibold text-muted-foreground capitalize">{formatDayFr(dayKey())}</p>
+        <h1 className="text-5xl font-extrabold">Le board</h1>
       </header>
 
       {!q &&
@@ -58,6 +45,8 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
           <h2 className="text-2xl font-extrabold lg:text-3xl">Archives</h2>
           <span className="text-sm text-muted-foreground">{archives.length}</span>
         </div>
+        {/* search only once there's something to search */}
+        {(q || archives.length >= 6) && (
         <form action="/" className="flex h-12 items-center lg:max-w-md gap-3 rounded-xl border-2 border-board-edge bg-board px-4 focus-within:border-primary">
           <Search className="size-5 shrink-0 text-muted-foreground" />
           <input
@@ -69,8 +58,9 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
             className="h-full w-full bg-transparent text-base outline-none placeholder:text-muted-foreground"
           />
         </form>
+        )}
         {archives.length === 0 ? (
-          <p className="py-6 text-center text-muted-foreground">{q ? "Aucun résultat." : "Rien pour l'instant, revenez demain !"}</p>
+          <EmptyState>{q ? "Aucun résultat." : "Rien pour l'instant, revenez demain !"}</EmptyState>
         ) : (
           <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
             {archives.map((p) => (

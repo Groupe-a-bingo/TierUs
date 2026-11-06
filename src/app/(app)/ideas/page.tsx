@@ -3,6 +3,7 @@ import { pageUser } from "@/lib/permissions";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { IdeaForm } from "@/components/ideas/idea-form";
+import { EmptyState } from "@/components/board/empty-state";
 
 export default async function IdeasPage() {
   const u = await pageUser();
@@ -32,7 +33,7 @@ export default async function IdeasPage() {
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase lg:text-base">Mes idées ({mine.length})</h2>
         {mine.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Tu n&apos;as encore rien proposé.</p>
+          <EmptyState>Tu n&apos;as encore rien proposé.</EmptyState>
         ) : (
           <ul className="flex flex-col gap-2">
             {mine.map((i) => (

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { TierResult } from "./tier-result";
 import { AvatarTile } from "./avatar-tile";
 import type { Member } from "./types";
+import { EmptyState } from "@/components/board/empty-state";
 
 export type ResultsData = {
   average: Record<Tier, string[]>;
@@ -50,7 +51,7 @@ const progressBar = cva("h-1 flex-1 rounded-full", {
   },
 });
 
-const statCard = "flex items-center gap-3 rounded-2xl border-2 border-board-edge bg-card p-3";
+const statChip = "flex items-center gap-2 rounded-full border-2 border-board-edge bg-card py-1 pr-3 pl-1 text-sm";
 
 function Story({ member, label, seen, selected, onClick }: { member: Member; label: string; seen: boolean; selected: boolean; onClick: () => void }) {
   return (
@@ -147,32 +148,32 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
       {view === "avg" && (
         <div className="flex flex-col gap-3">
           <TierResult rows={data.average} members={byId} captions={captions} />
-          {spicy && data.controversial && (
-            <div className={statCard}>
-              <AvatarTile name={spicy.name} fileId={spicy.avatarFileId} size="sm" />
-              <p className="text-sm">
-                🌶️ <strong>{spicy.name}</strong> divise le plus <span className="text-muted-foreground">(écart {data.controversial.stddev})</span>
-              </p>
+          {/* fun facts as compact chips (one line instead of stacked cards) */}
+          {(spicy || data.unanimous.length > 0) && (
+            <div className="flex flex-wrap gap-2">
+              {spicy && (
+                <span className={statChip}>
+                  <AvatarTile name={spicy.name} fileId={spicy.avatarFileId} size="sm" />
+                  🌶️ <strong>{spicy.name}</strong> divise
+                </span>
+              )}
+              {data.unanimous.map((u) => {
+                const m = byId.get(u.targetId);
+                return m ? (
+                  <span key={u.targetId} className={statChip}>
+                    <AvatarTile name={m.name} fileId={m.avatarFileId} size="sm" />
+                    🤝 <strong>{m.name}</strong> en {u.tier} pour tous
+                  </span>
+                ) : null;
+              })}
             </div>
           )}
-          {data.unanimous.map((u) => {
-            const m = byId.get(u.targetId);
-            return m ? (
-              <div key={u.targetId} className={statCard}>
-                <AvatarTile name={m.name} fileId={m.avatarFileId} size="sm" />
-                <p className="text-sm">
-                  🤝 Unanimité : <strong>{m.name}</strong> en <strong>{u.tier}</strong>
-                </p>
-              </div>
-            ) : null;
-          })}
-          <p className="text-center text-xs text-muted-foreground">{data.voters.length} tier list(s) dans la moyenne</p>
         </div>
       )}
 
       {view === "lists" &&
         (order.length === 0 ? (
-          <p className="py-6 text-center text-muted-foreground">Personne n&apos;a encore joué.</p>
+          <EmptyState>Personne n&apos;a encore joué.</EmptyState>
         ) : (
           <div className="flex flex-col gap-4">
             {/* stories bar: me anchored left │ others in a carousel */}
@@ -180,11 +181,14 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
               {mine && byId.get(mine.voterId) && (
                 <>
                   <Story member={byId.get(mine.voterId)!} label="Moi" seen={seen.has(mine.voterId)} selected={idx === 0} onClick={() => go(0)} />
-                  <div className="h-18 w-0.5 shrink-0 rounded-full bg-board-edge" aria-hidden />
+                  <div className="h-19 w-0.5 shrink-0 rounded-full bg-board-edge" aria-hidden />
                 </>
               )}
               {others.length === 0 ? (
-                <p className="self-center text-sm text-muted-foreground">Les autres n&apos;ont pas encore joué.</p>
+                // centred on the avatar row (the bar), not on avatar + name
+                <div className="flex h-19 min-w-0 flex-1 items-center">
+                  <EmptyState inline>Les autres n&apos;ont pas encore joué.</EmptyState>
+                </div>
               ) : (
                 <Carousel>
                   {others.map((v, i) => {
@@ -204,7 +208,6 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <AvatarTile name={currentMember.name} fileId={currentMember.avatarFileId} size="sm" />
                   <p className="min-w-0 flex-1 truncate">
                     <span className="font-display font-bold">{current.voterId === data.myId ? "Ma tier list" : currentMember.name}</span>
                     {current.isLate && <span className="text-sm text-muted-foreground"> · en retard</span>}

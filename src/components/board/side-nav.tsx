@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutList, Lightbulb, Shield, User, Plus } from "lucide-react";
+import { Flame, LayoutList, Lightbulb, Shield } from "lucide-react";
 import { cva } from "class-variance-authority";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { Wordmark } from "./wordmark";
@@ -19,17 +19,22 @@ const item = cva(
   },
 );
 
-/** Desktop navigation (lg+). The phone keeps the floating bottom bar. */
-export function SideNav({ isMod, me }: { isMod: boolean; me: { name: string; avatarFileId: string | null; role: string } }) {
+const profileCard = cva("mt-auto flex items-center gap-3 rounded-2xl border-2 p-3 transition-colors duration-75", {
+  variants: {
+    active: { true: "border-primary bg-card", false: "border-board-edge bg-card hover:border-primary" },
+  },
+});
+
+/** Desktop navigation (lg+). The phone keeps the sticky header + floating bottom bar. */
+export function SideNav({ isMod, streak, me }: { isMod: boolean; streak: number; me: { name: string; avatarFileId: string | null; role: string } }) {
   const path = usePathname();
   const items = [
     { href: "/", label: "Board", Icon: LayoutList, match: (p: string) => p === "/" || p.startsWith("/r/") },
     { href: "/ideas", label: "Idées", Icon: Lightbulb, match: (p: string) => p.startsWith("/ideas") },
     ...(isMod ? [{ href: "/mod", label: "Modération", Icon: Shield, match: (p: string) => p.startsWith("/mod") }] : []),
-    { href: "/profile", label: "Profil", Icon: User, match: (p: string) => p.startsWith("/profile") },
   ];
   return (
-    <aside className="sticky top-0 hidden h-dvh w-72 shrink-0 flex-col gap-8 border-r-2 border-board-edge bg-board p-6 lg:flex">
+    <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-8 border-r-2 border-board-edge bg-board p-6 lg:flex">
       <Link href="/" aria-label="Accueil">
         <Wordmark />
       </Link>
@@ -43,19 +48,14 @@ export function SideNav({ isMod, me }: { isMod: boolean; me: { name: string; ava
         ))}
       </nav>
 
-      <Link
-        href="/ideas"
-        className="flex items-center justify-center gap-2 rounded-xl border-2 border-ink bg-tier-d px-4 py-3 font-display font-bold text-tier-foreground shadow-pop transition-transform duration-75 hover:-translate-y-0.5 active:translate-y-1 active:shadow-none"
-      >
-        <Plus className="size-5" /> Proposer une idée
-      </Link>
-
-      <Link href="/profile" className="mt-auto flex items-center gap-3 rounded-2xl border-2 border-board-edge bg-card p-3 hover:border-primary">
+      {/* profile = this card (no separate nav entry) */}
+      <Link href="/profile" className={profileCard({ active: path.startsWith("/profile") })}>
         <AvatarTile name={me.name} fileId={me.avatarFileId} size="sm" />
-        <div className="min-w-0">
-          <p className="truncate font-display font-bold">{me.name}</p>
-          <p className="text-xs text-muted-foreground">{me.role === "admin" ? "Admin" : me.role === "moderator" ? "Modo" : "Membre"}</p>
-        </div>
+        <p className="min-w-0 flex-1 truncate font-display font-bold">{me.name}</p>
+        <span className="flex items-center gap-0.5 font-display font-extrabold text-streak" title="Jours de suite">
+          <Flame className="size-4" />
+          {streak}
+        </span>
       </Link>
     </aside>
   );

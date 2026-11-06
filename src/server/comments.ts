@@ -51,7 +51,11 @@ export async function getComments(roundId: string, viewerId: string, viewerIsMod
     : [];
   const byId = new Map(rows.map((r) => [r.id, r]));
 
-  return rows.map((r) => {
+  // a deleted message is only kept as a placeholder if someone replied to it
+  const repliedTo = new Set(rows.filter((r) => !r.deletedAt && r.replyToId).map((r) => r.replyToId));
+  const visible = rows.filter((r) => !r.deletedAt || repliedTo.has(r.id));
+
+  return visible.map((r) => {
     const parent = r.replyToId ? byId.get(r.replyToId) : undefined;
     return {
       id: r.id,

@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { addComment, deleteComment } from "@/app/actions/social";
-import { ReactionBar, type ReactionSummary } from "./reaction-bar";
+import { ReactionBar, hoverOnly, type ReactionSummary } from "./reaction-bar";
+import { EmptyState } from "@/components/board/empty-state";
 
 export type CommentView = {
   id: string;
@@ -91,11 +92,11 @@ export function Comments({
         Discussion <span className="text-muted-foreground">{list.filter((c) => !c.deleted).length}</span>
       </h2>
 
-      {list.length === 0 && <p className="text-muted-foreground">Lance le débat 👇</p>}
+      {list.length === 0 && <EmptyState>Lance le débat 👇</EmptyState>}
 
       <ul className="flex flex-col gap-4">
         {list.map((c) => (
-          <li key={c.id} className={c.pending ? "flex animate-rise gap-3 opacity-60" : "flex gap-3"}>
+          <li key={c.id} className={c.pending ? "group flex animate-rise gap-3 opacity-60" : "group flex gap-3"}>
             <AvatarTile name={c.author.name} fileId={c.author.avatarFileId} size="sm" shape="round" />
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               {c.replyTo && (
@@ -115,7 +116,8 @@ export function Comments({
               </p>
               {!c.deleted && !c.pending && (
                 <div className="flex flex-wrap items-center gap-1">
-                  <ReactionBar roundId={roundId} commentId={c.id} reactions={c.reactions} compact />
+                  <ReactionBar roundId={roundId} commentId={c.id} reactions={c.reactions} compact pickerOnHover />
+                  <span className={hoverOnly}>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -131,6 +133,7 @@ export function Comments({
                       <Trash2 />
                     </Button>
                   )}
+                  </span>
                 </div>
               )}
             </div>

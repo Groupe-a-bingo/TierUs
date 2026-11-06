@@ -10,6 +10,7 @@ import { setUserRole, setUserStatus } from "@/app/actions/moderation";
 import { deleteIdea } from "@/app/actions/ideas";
 import { drawNowAction } from "@/app/actions/rounds";
 import type { ActionResult } from "@/lib/errors";
+import { EmptyState } from "@/components/board/empty-state";
 
 function useAction() {
   const [pending, startTransition] = useTransition();
@@ -28,7 +29,7 @@ type U = { id: string; name: string; email: string; avatarFileId: string | null;
 
 export function PendingUsers({ users }: { users: U[] }) {
   const { pending, run } = useAction();
-  if (!users.length) return <p className="text-sm text-muted-foreground">Aucune inscription en attente.</p>;
+  if (!users.length) return <EmptyState>Aucune inscription en attente.</EmptyState>;
   return (
     <ul className="flex flex-col gap-3">
       {users.map((u) => (
@@ -104,6 +105,7 @@ export function IdeaBank({ ideas }: { ideas: Idea[] }) {
           </Button>
         ))}
       </div>
+      {shown.length === 0 && <EmptyState>Aucune idée ici.</EmptyState>}
       <ul className="flex flex-col gap-2">
         {shown.map((i) => (
           <li key={i.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">

@@ -190,3 +190,11 @@
     display: none;
   }
 }
+
+/* reserve the scrollbar's space so layouts never jump when it appears */
+html {
+  scrollbar-gutter: stable;
+}
+@utility scroll-gutter-stable {
+  scrollbar-gutter: stable;
+}

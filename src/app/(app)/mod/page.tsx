@@ -6,6 +6,7 @@ import { dayKey } from "@/lib/dates";
 import { getCurrentRound, getRoundByDate } from "@/server/rounds/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DrawNow, IdeaBank, Members, PendingUsers } from "@/components/mod/mod-panels";
+import { EmptyState } from "@/components/board/empty-state";
 
 const userCols = {
   id: schema.user.id,
@@ -107,6 +108,7 @@ export default async function ModPage() {
           <CardTitle>Journal</CardTitle>
         </CardHeader>
         <CardContent>
+          {logs.length === 0 && <EmptyState>Aucune action pour l&apos;instant.</EmptyState>}
           <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
             {logs.map((l) => (
               <li key={l.id}>

@@ -243,7 +243,6 @@ export function TierEditor({
               ))}
             </div>
           )}
-          {canDrag && <p className="text-xs text-muted-foreground">Glisse les avatars dans les rangées, ou clique un tier.</p>}
         </section>
       ) : (
         done && (
@@ -251,9 +250,6 @@ export function TierEditor({
             <Button size="xl" className="w-full" disabled={pending} onClick={submit}>
               <Check /> {submitLabel}
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              {canDrag ? "Glisse un avatar pour le déplacer, clique-le pour le reprendre." : "Touche un avatar pour le replacer."}
-            </p>
           </div>
         )
       )}
