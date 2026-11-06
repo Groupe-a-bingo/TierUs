@@ -2,13 +2,25 @@
  * Black-box tests against a running build (`next start`).
  * Env: E2E_BASE_URL (the app), TEST_DATABASE_URL (same DB the app uses, to
  * validate accounts), and the app must run with CLIENT_IP_HEADER=x-test-ip.
+ * The suite writes to that database (sign-ups, status changes): like the
+ * integration suite, it refuses any database whose name doesn't contain "test".
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import sharp from "sharp";
 
+const TEST_DB_URL = process.env.TEST_DATABASE_URL;
+if (!TEST_DB_URL) throw new Error("TEST_DATABASE_URL is not set (HTTP tests need a dedicated test database)");
+const testDbName = new URL(TEST_DB_URL).pathname.slice(1);
+if (!/test/i.test(testDbName)) throw new Error(`Refusing to run HTTP tests on database "${testDbName}" (name must contain "test")`);
+// the app under test must use that same database, never a real one
+const appDb = process.env.DATABASE_URL;
+if (appDb && new URL(appDb).pathname.slice(1) !== testDbName) {
+  throw new Error(`DATABASE_URL points to "${new URL(appDb).pathname.slice(1)}", not the test database "${testDbName}"`);
+}
+
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3020";
-const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
+const pool = new Pool({ connectionString: TEST_DB_URL });
 afterAll(() => pool.end());
 
 let ipCounter = 0;
@@ -168,6 +180,12 @@ describe("pages", () => {
     const bad = await call("/r/2026-02-31", { client: member });
     expect(await bad.text()).toContain("Page introuvable");
     expect((await call("/?q=a&q=b", { client: member })).status).toBe(200);
+  });
+
+  it("tier lists are addressed by id; unknown ids and old date links without a tier list are 404", async () => {
+    expect(await (await call(`/r/${crypto.randomUUID()}`, { client: member })).text()).toContain("Page introuvable");
+    expect(await (await call("/r/1999-01-01", { client: member })).text()).toContain("Page introuvable");
+    expect(await (await call("/r/not-an-id", { client: member })).text()).toContain("Page introuvable");
   });
 
   it("live endpoint answers a version fingerprint", async () => {

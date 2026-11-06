@@ -1,18 +1,15 @@
-import { Flame } from "lucide-react";
+import { Trophy } from "lucide-react";
 import { pageUser } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AvatarUpload } from "@/components/profile/avatar-upload";
 import { NameForm } from "@/components/profile/name-form";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { getCurrentRound, getPreviousRoundDate } from "@/server/rounds/queries";
-import { displayStreak } from "@/server/streaks";
+import { answeredOnTimeCount } from "@/server/counter";
 
 export default async function ProfilePage() {
   const u = await pageUser();
-  const current = await getCurrentRound();
-  const prev = current ? await getPreviousRoundDate(current.date) : null;
-  const streak = displayStreak({ streak: u.streak, lastPlayed: u.lastPlayedRoundDate, currentRoundDate: current?.date ?? null, previousRoundDate: prev });
+  const count = await answeredOnTimeCount(u.id);
 
   return (
     <div className="flex flex-col gap-4 lg:mx-auto lg:max-w-xl lg:pt-6">
@@ -29,9 +26,12 @@ export default async function ProfilePage() {
           <div className="flex flex-col gap-4">
           <AvatarUpload name={u.name} fileId={u.avatarFileId} />
           <NameForm initial={u.name} />
-          <p className="flex items-center gap-2 text-lg font-semibold text-streak">
-            <Flame className="size-6" /> {streak} jour{streak > 1 ? "s" : ""} de suite
-          </p>
+          <div className="flex flex-col gap-0.5">
+            <p className="flex items-center gap-2 text-lg font-semibold text-streak">
+              <Trophy className="size-6" aria-hidden /> {count} tier list{count > 1 ? "s" : ""} répondue{count > 1 ? "s" : ""} à temps
+            </p>
+            <p className="text-sm text-muted-foreground">Chaque tier list compte une fois si tu y réponds avant son archivage. Une journée manquée ne fait rien perdre.</p>
+          </div>
           </div>
         </CardContent>
       </Card>

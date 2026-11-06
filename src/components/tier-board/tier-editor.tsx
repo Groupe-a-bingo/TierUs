@@ -58,14 +58,15 @@ function useFinePointer() {
 export function TierEditor({
   roundId,
   members,
-  isLate,
+  archived,
   complement,
   locked = [],
   wide = true,
 }: {
   roundId: string;
   members: Member[];
-  isLate: boolean;
+  /** archived tier list: answering still works, it just doesn't count for the counter */
+  archived: boolean;
   complement?: boolean;
   locked?: { member: Member; tier: Tier }[];
   wide?: boolean;
@@ -196,7 +197,7 @@ export function TierEditor({
       }
     : {};
 
-  const submitLabel = pending ? "Envoi…" : complement ? "Ajouter à ma tier list" : isLate ? "Valider (en retard)" : "Valider ma tier list";
+  const submitLabel = pending ? "Envoi…" : complement ? "Ajouter à ma tier list" : archived ? "Valider (hors délai)" : "Valider ma tier list";
 
   return (
     <div className={shell({ wide })}>

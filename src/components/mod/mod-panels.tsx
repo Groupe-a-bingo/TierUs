@@ -8,7 +8,9 @@ import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { IdeaForm } from "@/components/ideas/idea-form";
 import { setUserRole, setUserStatus } from "@/app/actions/moderation";
 import { deleteIdea } from "@/app/actions/ideas";
-import { drawNowAction } from "@/app/actions/rounds";
+import { createExtraRoundAction, drawNowAction } from "@/app/actions/rounds";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { ActionResult } from "@/lib/errors";
 import { EmptyState } from "@/components/board/empty-state";
 
@@ -146,5 +148,47 @@ export function DrawNow() {
     <Button disabled={pending} onClick={() => run(() => drawNowAction(), "Tier list du jour tirée !")}>
       Tirer la tier list du jour maintenant
     </Button>
+  );
+}
+
+/** Extra tier list on top of the daily one, with its own lifetime (TTL, in real hours). */
+export function CreateExtraRound({ defaultTtl, minTtl, maxTtl, disabled }: { defaultTtl: number; minTtl: number; maxTtl: number; disabled: boolean }) {
+  const { pending, run } = useAction();
+  const [ttl, setTtl] = useState(String(defaultTtl));
+  const hours = Number(ttl);
+  const valid = Number.isInteger(hours) && hours >= minTtl && hours <= maxTtl;
+  return (
+    <form
+      className="flex flex-col gap-2 rounded-lg border border-border p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) run(() => createExtraRoundAction(hours), "Tier list supplémentaire créée !", `Tirer une idée de la banque pour une tier list de ${hours} h ?`);
+      }}
+    >
+      <Label htmlFor="extra-ttl">Tier list supplémentaire</Label>
+      <p className="text-xs text-muted-foreground">Une idée tirée au hasard dans la banque, en plus de celle du jour. Elle part dans les archives à la fin de sa durée.</p>
+      <div className="flex items-center gap-2">
+        <div className="w-24">
+          <Input
+            id="extra-ttl"
+            type="number"
+            inputMode="numeric"
+            min={minTtl}
+            max={maxTtl}
+            step={1}
+            value={ttl}
+            onChange={(e) => setTtl(e.target.value)}
+            aria-describedby="extra-ttl-unit"
+          />
+        </div>
+        <span id="extra-ttl-unit" className="flex-1 text-sm text-muted-foreground">
+          heures ({minTtl}–{maxTtl})
+        </span>
+        <Button type="submit" disabled={pending || disabled || !valid}>
+          Créer
+        </Button>
+      </div>
+      {disabled && <p className="text-xs text-muted-foreground">La banque d&apos;idées est vide.</p>}
+    </form>
   );
 }

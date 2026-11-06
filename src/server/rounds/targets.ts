@@ -1,41 +1,39 @@
-import { and, eq, notExists, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { dayKey } from "@/lib/dates";
-import { getCurrentRound } from "./queries";
+import type { Tx } from "./lock";
 
-const { user, roundTargets, submissions, placements } = schema;
+const { rounds, roundTargets, submissions, placements } = schema;
 
 /**
- * Add every active member missing from today's round (e.g. someone just got
- * validated). Existing submissions are kept untouched: their authors will be
- * asked to place the newcomer, and the average simply has one vote less for
- * them until then. Returns the ids that were added.
+ * Add a member to every tier list not yet expired at `now` (e.g. they just got
+ * validated). Call it in the transaction that activates the account, after
+ * `lockMembership(tx)`, so both happen or neither does and no draw can
+ * snapshot members in between. No `starts_at <= now` filter: a round drawn
+ * while this transaction waited for the lock starts after `now` and must be
+ * included too (tier lists never start in the future otherwise).
+ * Existing submissions are kept untouched: their authors are asked to place
+ * the newcomer. Returns the ids of the tier lists the member was added to.
  */
-export async function syncTodayTargets(): Promise<string[]> {
-  const round = await getCurrentRound();
-  if (!round || round.date !== dayKey()) return [];
+export async function addMemberToActiveRounds(userId: string, exec: Tx | typeof db = db, now = new Date()): Promise<string[]> {
+  const { rows } = await exec.execute<{ round_id: string }>(sql`
+    insert into ${roundTargets} (round_id, user_id)
+    select r.id, ${userId}
+    from ${rounds} r
+    where r.expires_at > ${now.toISOString()}::timestamptz
+    on conflict do nothing
+    returning round_id
+  `);
+  return rows.map((r) => r.round_id);
+}
 
-  const added = await db
-    .insert(roundTargets)
-    .select(
-      db
-        .select({ roundId: sql<string>`${round.id}`.as("round_id"), userId: user.id })
-        .from(user)
-        .where(
-          and(
-            eq(user.status, "active"),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(roundTargets)
-                .where(and(eq(roundTargets.roundId, round.id), eq(roundTargets.userId, user.id))),
-            ),
-          ),
-        ),
-    )
-    .onConflictDoNothing()
-    .returning({ userId: roundTargets.userId });
-  return added.map((a) => a.userId);
+/** A banned member leaves the tier lists that are still active (archives keep history). */
+export async function removeMemberFromActiveRounds(userId: string, exec: Tx | typeof db = db, now = new Date()): Promise<void> {
+  await exec.execute(sql`
+    delete from ${roundTargets} rt using ${rounds} r
+    where rt.round_id = r.id
+      and rt.user_id = ${userId}
+      and r.expires_at > ${now.toISOString()}::timestamptz
+  `);
 }
 
 /** Targets this voter hasn't placed yet in their existing submission. */

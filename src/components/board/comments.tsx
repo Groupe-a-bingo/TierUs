@@ -70,7 +70,9 @@ function Message({ c, roundId, grouped, onReply, onDelete }: { c: CommentView; r
   const g = useChatGestures({ enabled: live, onReply, onDoubleTap: like, onLongPress: () => setSheet(true) });
 
   return (
-    <li className={cn(messageRow({ grouped }), c.pending && "animate-rise opacity-60")}>
+    // data-gesture: on touch screens the whole message is a gesture surface (no text selection,
+    // "Copier le texte" lives in the long-press menu); a mouse can still select text
+    <li data-gesture className={cn(messageRow({ grouped }), c.pending && "animate-rise opacity-60")}>
       {grouped ? <span className="w-8 shrink-0" aria-hidden /> : <AvatarTile name={c.author.name} fileId={c.author.avatarFileId} size="sm" />}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {c.replyTo && (
@@ -246,7 +248,6 @@ export function Comments({
             </button>
           </div>
         )}
-        <p className="px-2 text-xs text-muted-foreground can-hover:hidden">Glisse un message → pour répondre · double-tap ❤️ · appui long pour plus</p>
         <div className="flex items-end gap-2">
           <textarea
             ref={input}

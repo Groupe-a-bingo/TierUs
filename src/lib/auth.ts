@@ -51,7 +51,6 @@ export const auth = betterAuth({
       role: { type: "string", input: false, defaultValue: "member" },
       status: { type: "string", input: false, defaultValue: "pending" },
       avatarFileId: { type: "string", input: false, required: false },
-      streak: { type: "number", input: false, defaultValue: 0 },
     },
   },
   session: {

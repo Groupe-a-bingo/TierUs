@@ -22,7 +22,7 @@ export default async function IdeasPage() {
         <CardHeader>
           <CardTitle>Proposer une tier list</CardTitle>
           <CardDescription>
-            Ton idée part directement dans la banque secrète. Chaque jour, une idée est tirée au hasard (jamais deux fois la même).
+            Ton idée part directement dans la banque secrète. Chaque jour à 8 h, une idée est tirée au hasard (jamais deux fois la même).
           </CardDescription>
         </CardHeader>
         <CardContent>

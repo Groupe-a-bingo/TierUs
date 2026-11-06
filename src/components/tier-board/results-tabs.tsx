@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cva } from "class-variance-authority";
 import type { Tier } from "@/lib/tiers";
@@ -24,6 +24,7 @@ export type ResultsData = {
 };
 
 type View = "avg" | "lists" | "stats";
+const VIEWS: View[] = ["avg", "lists", "stats"];
 
 const segment = cva(
   "flex-1 rounded-xl border-2 py-2.5 font-display text-sm font-bold transition-colors duration-100 active:scale-95",
@@ -57,9 +58,9 @@ const progressBar = cva("h-1 flex-1 rounded-full", {
 
 const statChip = "flex items-center gap-2 rounded-full border-2 border-board-edge bg-card py-1 pr-3 pl-1 text-sm";
 
-function Story({ member, label, seen, selected, onClick }: { member: Member; label: string; seen: boolean; selected: boolean; onClick: () => void }) {
+function Story({ id, member, label, seen, selected, onClick }: { id: string; member: Member; label: string; seen: boolean; selected: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} aria-pressed={selected} className="flex w-20 shrink-0 snap-start flex-col items-center gap-1.5 active:scale-95">
+    <button type="button" data-story-id={id} onClick={onClick} aria-pressed={selected} className="flex w-20 shrink-0 snap-start flex-col items-center gap-1.5 active:scale-95">
       <span className={ring({ seen: seen && !selected })}>
         <span className="block rounded-xl bg-background p-0.5">
           <AvatarTile name={member.name} fileId={member.avatarFileId} size="story" />
@@ -70,10 +71,26 @@ function Story({ member, label, seen, selected, onClick }: { member: Member; lab
   );
 }
 
-/** Horizontal carousel with scroll arrows on desktop (touch just swipes). */
-function Carousel({ children }: { children: React.ReactNode }) {
+/**
+ * Horizontal carousel with scroll arrows on desktop (touch just swipes).
+ * `activeId`: the selected story is scrolled to the centre whenever it changes
+ * (prev / next buttons, taps on the tier list), so it's never left off-screen.
+ */
+function Carousel({ activeId, children }: { activeId: string | null; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !activeId) return;
+    const item = [...el.querySelectorAll<HTMLElement>("[data-story-id]")].find((n) => n.dataset.storyId === activeId);
+    if (!item) return; // e.g. "Moi", outside the carousel
+    const box = el.getBoundingClientRect();
+    const r = item.getBoundingClientRect();
+    const delta = r.left + r.width / 2 - (box.left + box.width / 2);
+    if (Math.abs(delta) < 1) return;
+    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollBy({ left: delta, behavior: smooth ? "smooth" : "auto" });
+  }, [activeId]);
   const update = () => {
     const el = ref.current;
     if (!el) return;
@@ -147,20 +164,51 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
   const spicy = data.controversial ? byId.get(data.controversial.targetId) : undefined;
   const currentMember = current ? byId.get(current.voterId) : undefined;
 
+  // WAI-ARIA tabs: one tab stop (roving tabindex), ←/→/Home/End move and activate
+  const uid = useId();
+  const tabId = (v: View) => `${uid}-tab-${v}`;
+  const panelId = `${uid}-panel`;
+  const tabRefs = useRef<Partial<Record<View, HTMLButtonElement | null>>>({});
+  const select = (v: View) => (v === "lists" ? open() : setView(v));
+  const onTabKey = (e: React.KeyboardEvent) => {
+    const i = VIEWS.indexOf(view);
+    const next =
+      e.key === "ArrowRight" ? VIEWS[(i + 1) % VIEWS.length]
+      : e.key === "ArrowLeft" ? VIEWS[(i - 1 + VIEWS.length) % VIEWS.length]
+      : e.key === "Home" ? VIEWS[0]
+      : e.key === "End" ? VIEWS[VIEWS.length - 1]
+      : null;
+    if (!next) return;
+    e.preventDefault();
+    select(next);
+    tabRefs.current[next]?.focus();
+  };
+  const tabLabel: Record<View, string> = { avg: "Moyenne", lists: `Tier lists · ${order.length}`, stats: "Stats" };
+
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex gap-1 rounded-2xl border-2 border-board-edge bg-board p-1" role="tablist">
-        <button type="button" role="tab" aria-selected={view === "avg"} className={segment({ active: view === "avg" })} onClick={() => setView("avg")}>
-          Moyenne
-        </button>
-        <button type="button" role="tab" aria-selected={view === "lists"} className={segment({ active: view === "lists" })} onClick={open}>
-          Tier lists · {order.length}
-        </button>
-        <button type="button" role="tab" aria-selected={view === "stats"} className={segment({ active: view === "stats" })} onClick={() => setView("stats")}>
-          Stats
-        </button>
+      <div className="flex gap-1 rounded-2xl border-2 border-board-edge bg-board p-1" role="tablist" aria-label="Résultats" onKeyDown={onTabKey}>
+        {VIEWS.map((v) => (
+          <button
+            key={v}
+            ref={(el) => {
+              tabRefs.current[v] = el;
+            }}
+            id={tabId(v)}
+            type="button"
+            role="tab"
+            aria-selected={view === v}
+            aria-controls={panelId}
+            tabIndex={view === v ? 0 : -1}
+            className={segment({ active: view === v })}
+            onClick={() => select(v)}
+          >
+            {tabLabel[v]}
+          </button>
+        ))}
       </div>
 
+      <div id={panelId} role="tabpanel" aria-labelledby={tabId(view)} tabIndex={0} className="flex flex-col gap-4 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
       {view === "avg" && (
         <div className="flex flex-col gap-3">
           <TierResult rows={data.average} members={byId} captions={captions} />
@@ -196,7 +244,7 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
             <div className="flex items-start gap-3">
               {mine && byId.get(mine.voterId) && (
                 <>
-                  <Story member={byId.get(mine.voterId)!} label="Moi" seen={seen.has(mine.voterId)} selected={idx === 0} onClick={() => go(0)} />
+                  <Story id={mine.voterId} member={byId.get(mine.voterId)!} label="Moi" seen={seen.has(mine.voterId)} selected={idx === 0} onClick={() => go(0)} />
                   <div className="h-19 w-0.5 shrink-0 rounded-full bg-board-edge" aria-hidden />
                 </>
               )}
@@ -206,10 +254,10 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
                   <EmptyState inline>Les autres n&apos;ont pas encore joué.</EmptyState>
                 </div>
               ) : (
-                <Carousel>
+                <Carousel activeId={current?.voterId === selectedId ? selectedId : null}>
                   {others.map((v, i) => {
                     const at = i + (mine ? 1 : 0);
-                    return <Story key={v.voterId} member={byId.get(v.voterId)!} label={byId.get(v.voterId)!.name} seen={seen.has(v.voterId)} selected={idx === at} onClick={() => go(at)} />;
+                    return <Story key={v.voterId} id={v.voterId} member={byId.get(v.voterId)!} label={byId.get(v.voterId)!.name} seen={seen.has(v.voterId)} selected={idx === at} onClick={() => go(at)} />;
                   })}
                 </Carousel>
               )}
@@ -226,7 +274,7 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
                 <div className="flex items-center gap-3">
                   <p className="min-w-0 flex-1 truncate">
                     <span className="font-display font-bold">{current.voterId === data.myId ? "Ma tier list" : currentMember.name}</span>
-                    {current.isLate && <span className="text-sm text-muted-foreground"> · en retard</span>}
+                    {current.isLate && <span className="text-sm text-muted-foreground"> · après archivage</span>}
                   </p>
                   <button type="button" aria-label="Précédente" disabled={idx === 0} onClick={() => go(idx - 1)} className="flex size-9 items-center justify-center rounded-full border-2 border-board-edge active:scale-90 disabled:opacity-30">
                     <ChevronLeft className="size-5" />
@@ -247,6 +295,7 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
           </div>
         ))}
       {view === "stats" && <StatsView stats={data.stats} targets={data.targets} members={byId} />}
+      </div>
     </section>
   );
 }

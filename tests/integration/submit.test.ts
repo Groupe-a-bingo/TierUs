@@ -1,26 +1,35 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { dayKey } from "@/lib/dates";
-import { drawRound } from "@/server/rounds/draw";
+import { HOUR_MS } from "@/lib/dates";
+import { drawDaily, drawExtra } from "@/server/rounds/draw";
 import { getProgress, getTargets, getVotes } from "@/server/rounds/queries";
 import { submitTierList } from "@/server/rounds/submit";
-import { syncTodayTargets, missingTargetsFor } from "@/server/rounds/targets";
-import { makeIdeas, makeUser, placementsFor, resetDb } from "../support/factories";
+import { addMemberToActiveRounds, missingTargetsFor } from "@/server/rounds/targets";
+import { answeredOnTimeCount } from "@/server/counter";
+import { setMemberStatus } from "@/server/members";
+import { drawActive, makeIdeas, makeUser, placementsFor, resetDb } from "../support/factories";
 
 beforeEach(resetDb);
 
-async function setup(members = 3, date = dayKey()) {
+// a fixed day: daily drawn at 08:00 CEST (06:00Z), "now" at 12:00 CEST
+const DAY_8AM = new Date("2026-04-01T06:00:00Z");
+const DAY_NOON = new Date("2026-04-01T10:00:00Z");
+const DAYS_BEFORE = new Date("2026-03-25T07:00:00Z"); // 08:00 CET (before the DST change), archived by DAY_NOON
+
+/** `now` given: that day's daily; otherwise a tier list active at the real time. */
+async function setup(members = 3, now?: Date) {
   const users = [];
   for (let i = 0; i < members; i++) users.push(await makeUser());
   await makeIdeas(3);
-  const r = await drawRound(date);
+  const r = now ? await drawDaily(now) : await drawActive();
   if (r.status !== "created") throw new Error("setup");
   const targets = await getTargets(r.roundId);
   return { users, roundId: r.roundId, targets };
 }
 
-const getRound = async (id: string) => (await db.select().from(schema.rounds).where(eq(schema.rounds.id, id)))[0];
+const play = async (userId: string, roundId: string, now?: Date) =>
+  submitTierList(userId, { roundId, placements: placementsFor(await getTargets(roundId), () => "A") }, now);
 
 describe("submitTierList — validation", () => {
   it("accepts exactly the round's members", async () => {
@@ -56,74 +65,114 @@ describe("submitTierList — validation", () => {
   });
 });
 
-describe("reveal on submission", () => {
-  it("reveals when the last member plays, and later answers are flagged late", async () => {
-    const { users, roundId, targets } = await setup(2);
-    await submitTierList(users[0].id, { roundId, placements: placementsFor(targets, () => "S") });
-    expect((await getRound(roundId)).revealedAt).toBeNull();
-    await submitTierList(users[1].id, { roundId, placements: placementsFor(targets, () => "B") });
-    const r = await getRound(roundId);
-    expect(r.revealReason).toBe("all_played");
-
-    const late = await makeUser();
-    await submitTierList(late.id, { roundId, placements: placementsFor(targets, () => "C") });
-    const [sub] = await db.select().from(schema.submissions).where(eq(schema.submissions.voterId, late.id));
-    expect(sub.isLate).toBe(true);
-  });
-
-  it("progress counts members who played", async () => {
-    const { users, roundId, targets } = await setup(3);
-    await submitTierList(users[0].id, { roundId, placements: placementsFor(targets, () => "S") });
-    expect(await getProgress(roundId)).toEqual({ played: 1, total: 3 });
+describe("TTL never closes voting", () => {
+  it("accepts an answer after archiving, flagged late", async () => {
+    const start = new Date("2026-06-01T06:00:00Z");
+    const { users, roundId } = await setup(2, start);
+    await play(users[0].id, roundId, new Date(start.getTime() + 23 * HOUR_MS));
+    await play(users[1].id, roundId, new Date(start.getTime() + 30 * HOUR_MS)); // archived, still accepted
+    const subs = await db.select().from(schema.submissions).where(eq(schema.submissions.roundId, roundId));
+    expect(Object.fromEntries(subs.map((s) => [s.voterId, s.isLate]))).toEqual({ [users[0].id]: false, [users[1].id]: true });
+    expect(await getProgress(roundId)).toEqual({ played: 2, total: 2 });
   });
 });
 
-describe("streaks", () => {
-  const streakOf = async (id: string) => (await db.select().from(schema.user).where(eq(schema.user.id, id)))[0];
-
-  it("count on today's round only, never on archives", async () => {
+describe("personal counter (tier lists answered before archiving)", () => {
+  it("two answers on time on two tier lists of the same day give +2", async () => {
     const u = await makeUser();
     await makeIdeas(2);
-    const past = await drawRound("2020-01-01");
-    if (past.status !== "created") throw new Error("setup");
-    await submitTierList(u.id, { roundId: past.roundId, placements: placementsFor(await getTargets(past.roundId), () => "S") });
-    expect((await streakOf(u.id)).streak).toBe(0);
+    const daily = await drawDaily(DAY_8AM);
+    const extra = await drawExtra(3, new Date("2026-04-01T09:00:00Z"));
+    if (daily.status !== "created" || extra.status !== "created") throw new Error("setup");
+    expect(await answeredOnTimeCount(u.id)).toBe(0);
+    await play(u.id, daily.roundId, DAY_NOON);
+    await play(u.id, extra.roundId, DAY_NOON);
+    expect(await answeredOnTimeCount(u.id)).toBe(2);
+  });
 
-    const today = await drawRound(dayKey());
-    if (today.status !== "created") throw new Error("setup");
-    await submitTierList(u.id, { roundId: today.roundId, placements: placementsFor(await getTargets(today.roundId), () => "S") });
-    const after = await streakOf(u.id);
-    expect(after.streak).toBe(1);
-    expect(after.lastPlayedRoundDate).toBe(dayKey());
+  it("an answer after archiving gives +0; a missed tier list removes nothing", async () => {
+    const u = await makeUser();
+    await makeIdeas(3);
+    const d1 = await drawDaily(new Date("2026-01-01T07:00:00Z"));
+    const d2 = await drawDaily(new Date("2026-01-02T07:00:00Z")); // missed entirely
+    const d3 = await drawDaily(new Date("2026-01-03T07:00:00Z"));
+    if (d1.status !== "created" || d2.status !== "created" || d3.status !== "created") throw new Error("setup");
+    await play(u.id, d1.roundId, new Date("2026-01-01T12:00:00Z"));
+    await play(u.id, d3.roundId, new Date("2026-01-03T12:00:00Z"));
+    expect(await answeredOnTimeCount(u.id)).toBe(2); // the missed day didn't reset anything
+    await play(u.id, d2.roundId, new Date("2026-01-05T12:00:00Z")); // after its archiving
+    expect(await answeredOnTimeCount(u.id)).toBe(2);
+  });
+
+  it("placing a newcomer later doesn't count the same tier list twice", async () => {
+    const { users, roundId } = await setup(2);
+    await play(users[0].id, roundId);
+    expect(await answeredOnTimeCount(users[0].id)).toBe(1);
+    const newcomer = await makeUser({ status: "pending" });
+    await setMemberStatus(newcomer.id, "active", null, "pending");
+    await submitTierList(users[0].id, { roundId, placements: [{ targetId: newcomer.id, tier: "S", position: 0 }] });
+    expect(await answeredOnTimeCount(users[0].id)).toBe(1);
   });
 });
 
 describe("new members joining (complement)", () => {
-  it("keeps existing answers and only accepts the newcomer", async () => {
-    const { users, roundId, targets } = await setup(2);
-    await submitTierList(users[0].id, { roundId, placements: placementsFor(targets, () => "A") });
+  it("validation adds the member to every active tier list (not archives), keeping existing answers", async () => {
+    const now = DAY_NOON;
+    const a = await makeUser();
+    await makeIdeas(4);
+    const old = await drawDaily(DAYS_BEFORE); // archived
+    const daily = await drawDaily(DAY_8AM);
+    const extra = await drawExtra(5, new Date("2026-04-01T09:00:00Z"));
+    if (old.status !== "created" || daily.status !== "created" || extra.status !== "created") throw new Error("setup");
+    await play(a.id, daily.roundId, now);
 
-    const newcomer = await makeUser();
-    expect(await syncTodayTargets()).toEqual([newcomer.id]);
-    expect(await missingTargetsFor(roundId, users[0].id)).toEqual([newcomer.id]);
-    expect(await getVotes(roundId)).toHaveLength(2); // nothing deleted
+    const newcomer = await makeUser({ status: "pending" });
+    const { addedTo } = await setMemberStatus(newcomer.id, "active", null, "pending", now);
+    expect(addedTo.sort()).toEqual([daily.roundId, extra.roundId].sort());
+    const [u] = await db.select().from(schema.user).where(eq(schema.user.id, newcomer.id));
+    expect(u.status).toBe("active");
 
-    // an old member is not part of the complement
-    await expect(
-      submitTierList(users[0].id, { roundId, placements: [{ targetId: users[1].id, tier: "S", position: 0 }] }),
-    ).rejects.toThrow(/inconnu/);
-    await submitTierList(users[0].id, { roundId, placements: [{ targetId: newcomer.id, tier: "S", position: 0 }] });
-    expect(await missingTargetsFor(roundId, users[0].id)).toEqual([]);
-    expect(await getVotes(roundId)).toHaveLength(3);
+    for (const id of [daily.roundId, extra.roundId]) expect((await getTargets(id)).map((t) => t.id)).toContain(newcomer.id);
+    expect(await getTargets(old.roundId)).toHaveLength(1);
+
+    // the one who already played only places the newcomer
+    expect(await missingTargetsFor(daily.roundId, a.id)).toEqual([newcomer.id]);
+    expect(await getVotes(daily.roundId)).toHaveLength(1); // nothing deleted
+    await expect(submitTierList(a.id, { roundId: daily.roundId, placements: [{ targetId: a.id, tier: "S", position: 0 }] })).rejects.toThrow(/inconnu/);
+    await submitTierList(a.id, { roundId: daily.roundId, placements: [{ targetId: newcomer.id, tier: "S", position: 0 }] });
+    expect(await missingTargetsFor(daily.roundId, a.id)).toEqual([]);
+    expect(await getVotes(daily.roundId)).toHaveLength(2);
   });
 
-  it("only touches today's round", async () => {
+  it("is atomic: if joining the tier lists fails, the account stays pending", async () => {
     await makeUser();
     await makeIdeas(1);
-    const old = await drawRound("2020-05-05");
-    if (old.status !== "created") throw new Error("setup");
-    await makeUser();
-    expect(await syncTodayTargets()).toEqual([]);
-    expect(await getTargets(old.roundId)).toHaveLength(1);
+    const r = await drawActive();
+    if (r.status !== "created") throw new Error("setup");
+    const pending = await makeUser({ status: "pending" });
+    // simulate a failure after the status update, inside the same transaction
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.update(schema.user).set({ status: "active" }).where(eq(schema.user.id, pending.id));
+        await addMemberToActiveRounds(pending.id, tx);
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+    const [u] = await db.select().from(schema.user).where(eq(schema.user.id, pending.id));
+    expect(u.status).toBe("pending");
+    expect((await getTargets(r.roundId)).map((t) => t.id)).not.toContain(pending.id);
+  });
+
+  it("a ban removes the member from active tier lists only", async () => {
+    const now = DAY_NOON;
+    const a = await makeUser();
+    const b = await makeUser();
+    await makeIdeas(2);
+    const old = await drawDaily(DAYS_BEFORE);
+    const cur = await drawDaily(DAY_8AM);
+    if (old.status !== "created" || cur.status !== "created") throw new Error("setup");
+    await setMemberStatus(b.id, "rejected", a.id, "active", now);
+    expect((await getTargets(cur.roundId)).map((t) => t.id)).toEqual([a.id]);
+    expect(await getTargets(old.roundId)).toHaveLength(2);
   });
 });

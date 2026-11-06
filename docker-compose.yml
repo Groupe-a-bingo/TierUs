@@ -1,3 +1,19 @@
+x-app: &app
+  build: .
+  image: tierus-app
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    # Inside the Docker network the app reaches Postgres as "db", not the host-mapped port.
+    # The password is NOT put in the URL (reserved characters like @ : / # % would
+    # break it): node-postgres, pg-boss and drizzle-kit read it from PGPASSWORD
+    # when the URL has none. User and database names must stay URL-safe.
+    DATABASE_URL: postgres://${POSTGRES_USER:-tierus}@db:5432/${POSTGRES_DB:-tierus}
+    PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    STORAGE_DIR: /app/storage
+  volumes:
+    - ./storage:/app/storage
+
 services:
   db:
     image: postgres:16-alpine
@@ -8,8 +24,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-tierus}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Dev only: bound to localhost so the host app can reach it.
-    # In prod, remove this mapping: app and worker reach "db" on the Docker network.
+    # Bound to localhost so host-side tooling (npm run dev, tests, drizzle-kit) can reach it.
     ports:
       - "127.0.0.1:54329:5432"
     healthcheck:
@@ -17,6 +32,34 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["npm", "run", "db:migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    ports:
+      # Local interface only by default: the reverse proxy / tunnel on this host
+      # (nginx, cloudflared…) reaches 127.0.0.1:3010 and sets the client IP header,
+      # while nobody can hit the app directly with a forged IP header.
+      # APP_BIND=0.0.0.0 only if the proxy runs on another machine, with
+      # CLIENT_IP_HEADER set and the port firewalled to that proxy.
+      - "${APP_BIND:-127.0.0.1}:3010:3010"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["npm", "run", "worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

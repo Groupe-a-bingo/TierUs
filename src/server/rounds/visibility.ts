@@ -1,17 +1,8 @@
-export type RoundVisibilityInput = {
-  revealed: boolean;
-  isCurrent: boolean;
-  hasSubmitted: boolean;
-};
-
 /**
- * Can this viewer see results (average + others' tier lists)?
- * - Never before reveal.
- * - Current round: only once you've submitted yours.
- * - Archives: open to every validated member (full history).
+ * Can this viewer see results (average, others' tier lists, discussion)?
+ * Only once they've sent their own answer for this tier list. Active or
+ * archived makes no difference: archiving never shows anything by itself.
  */
-export function canSeeResults({ revealed, isCurrent, hasSubmitted }: RoundVisibilityInput): boolean {
-  if (!revealed) return false;
-  if (isCurrent) return hasSubmitted;
-  return true;
+export function canSeeResults({ hasSubmitted }: { hasSubmitted: boolean }): boolean {
+  return hasSubmitted;
 }

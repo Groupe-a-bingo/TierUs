@@ -1,13 +1,13 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { cva } from "class-variance-authority";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { pageUser, isModerator } from "@/lib/permissions";
-import { formatDayFr, isDayKey, dayKey } from "@/lib/dates";
+import { formatDayFr, formatRemaining, formatTimeFr, isActive, isDayKey, isUuid } from "@/lib/dates";
 import { TIERS, emptyRows } from "@/lib/tiers";
 import { db, schema } from "@/db";
-import { getMyPlacements, getVotes, getProgress, getRoundByDate, getSubmissionsDetail, getTargets, hasSubmitted } from "@/server/rounds/queries";
+import { getMyPlacements, getVotes, getProgress, getRoundIdByDate, getRoundWithIdea, getSubmissionsDetail, getTargets, hasSubmitted } from "@/server/rounds/queries";
 import { canSeeResults } from "@/server/rounds/visibility";
 import { aggregate, computeStats } from "@/server/rounds/aggregate";
 import { roundVersion } from "@/server/live";
@@ -15,48 +15,49 @@ import { missingTargetsFor } from "@/server/rounds/targets";
 import { getComments, getPostReactions } from "@/server/comments";
 import { TierEditor } from "@/components/tier-board/tier-editor";
 import { ResultsTabs, type ResultsData } from "@/components/tier-board/results-tabs";
-import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { LiveRefresh } from "@/components/board/live-refresh";
 import { Comments } from "@/components/board/comments";
 import { ReactionBar } from "@/components/board/reaction-bar";
 import { ModRoundControls } from "@/components/board/mod-round-controls";
 
 const stateChip = cva("ml-auto rounded-full border-2 border-ink px-2.5 py-0.5 font-display text-xs font-bold text-tier-foreground", {
-  variants: { revealed: { true: "bg-tier-d", false: "bg-tier-s" } },
+  variants: { active: { true: "bg-tier-s", false: "bg-tier-d" } },
 });
 
-export default async function RoundPage({ params, searchParams }: { params: Promise<{ date: string }>; searchParams: Promise<{ play?: string }> }) {
+/**
+ * One tier list: `/r/<id>` (the slug is the tier list's uuid).
+ * Old `/r/YYYY-MM-DD` links land here too and are redirected to that day's
+ * daily tier list (or the first one created that day).
+ */
+export default async function RoundPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ play?: string }> }) {
   const u = await pageUser();
-  const { date } = await params;
+  const { slug } = await params;
   const { play } = await searchParams;
-  if (!isDayKey(date)) notFound();
 
-  const found = await getRoundByDate(date);
+  if (isDayKey(slug)) {
+    const id = await getRoundIdByDate(slug);
+    if (!id) notFound();
+    permanentRedirect(`/r/${id}`);
+  }
+  if (!isUuid(slug)) notFound();
+
+  const found = await getRoundWithIdea(slug);
   if (!found) notFound();
   const { round, idea } = found;
 
-  const [targets, submitted, progress] = await Promise.all([
-    getTargets(round.id),
-    hasSubmitted(round.id, u.id),
-    getProgress(round.id),
-  ]);
-  // "current" = today's round (if no round was drawn today, yesterday's is an archive)
-  const isCurrent = round.date === dayKey();
-  const isToday = round.date === dayKey();
-  const revealed = !!round.revealedAt;
-  const visible = canSeeResults({ revealed, isCurrent, hasSubmitted: submitted });
+  const now = new Date();
+  const active = isActive(round, now);
+  const [targets, submitted, progress] = await Promise.all([getTargets(round.id), hasSubmitted(round.id, u.id), getProgress(round.id)]);
+  // results, others' tier lists and the discussion: only after your own answer, archived or not
+  const visible = canSeeResults({ hasSubmitted: submitted });
   const mod = isModerator(u);
-  // Discussion is part of the results: hidden on today's post until you've played.
-  const showThread = !isCurrent || submitted;
-  const showEditor = !submitted && (isCurrent || play === "1");
+  // archived and not answered yet: still possible, behind a link (it won't count)
+  const showEditor = !submitted && (active || play === "1");
 
-  const [missingIds, resultsBundle, playedIds, thread] = await Promise.all([
+  const [missingIds, resultsBundle, thread] = await Promise.all([
     submitted ? missingTargetsFor(round.id, u.id) : Promise.resolve([] as string[]),
     visible ? Promise.all([getVotes(round.id), getSubmissionsDetail(round.id)]) : null,
-    !visible && submitted
-      ? db.select({ voterId: schema.submissions.voterId }).from(schema.submissions).where(eq(schema.submissions.roundId, round.id)).then((r) => r.map((x) => x.voterId))
-      : Promise.resolve([] as string[]),
-    showThread ? Promise.all([getComments(round.id, u.id, mod), getPostReactions(round.id, u.id)]) : null,
+    visible ? Promise.all([getComments(round.id, u.id, mod), getPostReactions(round.id, u.id)]) : null,
   ]);
   const missingMembers = targets.filter((t) => missingIds.includes(t.id));
   // complement mode: show the rest of my tier list greyed out
@@ -109,54 +110,37 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
         <Link href="/" className="flex w-fit items-center gap-1 rounded-full py-1 pr-3 text-sm font-semibold text-muted-foreground active:scale-95 lg:hidden">
           <ArrowLeft className="size-4" /> Board
         </Link>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold text-muted-foreground capitalize">{isToday ? "Aujourd'hui" : formatDayFr(round.date)}</span>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-semibold text-muted-foreground capitalize">
+            {formatDayFr(round.date)}
+            {round.kind === "extra" && ` · bonus ${formatTimeFr(round.startsAt)}`}
+          </span>
           <span className="text-muted-foreground">·</span>
           <span className="font-display font-bold">
             {progress.played}/{progress.total} ont joué
           </span>
-          <span className={stateChip({ revealed })}>{revealed ? "Révélé" : "En cours"}</span>
+          <span className={stateChip({ active })}>{active ? `En cours · ${formatRemaining(round.expiresAt.getTime() - now.getTime())}` : "Archivée"}</span>
         </div>
         <h1 className="animate-rise text-3xl leading-none font-extrabold lg:text-5xl">{idea.title}</h1>
         {idea.description && <p className="text-muted-foreground">{idea.description}</p>}
-        {mod && isCurrent && <ModRoundControls roundId={round.id} canReveal={!revealed} canReroll={!revealed && progress.played === 0 && isToday} />}
+        {mod && active && progress.played === 0 && <ModRoundControls roundId={round.id} />}
       </header>
 
-      {showEditor && <TierEditor roundId={round.id} members={targets} isLate={revealed} />}
+      {showEditor && <TierEditor roundId={round.id} members={targets} archived={!active} />}
 
       {missingMembers.length > 0 && (
         <section className="flex flex-col gap-3">
           <h2 className="text-2xl font-extrabold">{missingMembers.length > 1 ? "Des nouveaux à placer 👋" : "Un nouveau à placer 👋"}</h2>
           <p className="text-muted-foreground">Ta tier list est gardée (en grisé), place juste {missingMembers.length > 1 ? "les nouveaux" : "le nouveau"}.</p>
-          <TierEditor roundId={round.id} members={missingMembers} isLate={revealed} complement locked={locked} wide={false} />
+          <TierEditor roundId={round.id} members={missingMembers} archived={!active} complement locked={locked} wide={false} />
         </section>
       )}
 
-      {!submitted && !isCurrent && !showEditor && (
-        <Link href={`/r/${round.date}?play=1`} className="rounded-2xl border-2 border-dashed border-board-edge p-4 text-center font-display font-bold text-muted-foreground active:scale-99">
-          Faire ma tier list (en retard) →
+      {!submitted && !showEditor && (
+        <Link href={`/r/${round.id}?play=1`} className="flex flex-col gap-1 rounded-2xl border-2 border-dashed border-board-edge p-4 text-center active:scale-99">
+          <span className="font-display font-bold">Faire ma tier list →</span>
+          <span className="text-sm text-muted-foreground">Elle est archivée : ta réponse te montre les résultats, mais ne compte pas dans ton compteur.</span>
         </Link>
-      )}
-
-      {submitted && !visible && (
-        <section className="flex animate-rise flex-col items-center gap-4 rounded-3xl border-2 border-ink bg-tier-f p-6 text-center text-tier-foreground shadow-pop">
-          <p className="text-5xl">🤫</p>
-          <h2 className="text-2xl font-extrabold">Tier list envoyée !</h2>
-          <p className="text-sm">Révélation quand tout le monde a joué, ou dans 24h max. La page se met à jour toute seule.</p>
-          <div className="flex flex-wrap justify-center gap-1.5">
-            {targets.map((t) => (
-              <AvatarTile
-                key={t.id}
-                name={t.name}
-                fileId={t.avatarFileId}
-                size="sm"
-                shape="round"
-                state={playedIds.includes(t.id) ? "idle" : "dim"}
-                title={`${t.name}${playedIds.includes(t.id) ? " a joué" : " n'a pas encore joué"}`}
-              />
-            ))}
-          </div>
-        </section>
       )}
 
       {results && <ResultsTabs data={results} members={[...targets, ...extraMembers]} />}
@@ -173,7 +157,7 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
           <div className="hidden flex-col items-center gap-3 py-16 text-center lg:flex">
             <p className="text-5xl">🔒</p>
             <h2 className="text-2xl font-extrabold">Discussion verrouillée</h2>
-            <p className="text-muted-foreground">Fais ta tier list pour voir ce que les autres en pensent.</p>
+            <p className="text-muted-foreground">Fais ta tier list pour voir les résultats et ce que les autres en pensent.</p>
           </div>
         )}
       </aside>

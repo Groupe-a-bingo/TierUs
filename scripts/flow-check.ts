@@ -2,11 +2,12 @@
  * Dev-only integration check of the daily flow against the local DB.
  *   npx tsx --conditions react-server scripts/flow-check.ts <step>
  * step = "partial" (alice+bob play) | "finish" (admin plays) | "bad" (invalid submissions)
+ * Plays the most recent active tier list.
  */
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { db, pool, schema } from "@/db";
-import { getCurrentRound, getTargets, getAggregate } from "@/server/rounds/queries";
+import { getActiveRounds, getTargets, getAggregate } from "@/server/rounds/queries";
 import { submitTierList } from "@/server/rounds/submit";
 import { TIERS } from "@/lib/tiers";
 
@@ -15,8 +16,15 @@ async function uid(name: string) {
   return u.id;
 }
 
+/** The most recent active tier list. */
+async function getCurrentRound() {
+  const [active] = await getActiveRounds();
+  if (!active) throw new Error("No active tier list");
+  return active.round;
+}
+
 async function play(name: string, pick: (i: number) => (typeof TIERS)[number]) {
-  const round = (await getCurrentRound())!;
+  const round = await getCurrentRound();
   const targets = await getTargets(round.id);
   await submitTierList(await uid(name), {
     roundId: round.id,
@@ -27,7 +35,7 @@ async function play(name: string, pick: (i: number) => (typeof TIERS)[number]) {
 
 async function main() {
   const step = process.argv[2];
-  const round = (await getCurrentRound())!;
+  const round = await getCurrentRound();
   if (step === "partial") {
     await play("alice", (i) => TIERS[i % 6]);
     await play("bob", (i) => TIERS[(i + 1) % 6]);
@@ -55,7 +63,7 @@ async function main() {
     await play("admin", () => "B");
   }
   const [r] = await db.select().from(schema.rounds).where(eq(schema.rounds.id, round.id));
-  console.log("revealed:", r.revealedAt ? r.revealReason : "no");
+  console.log("expires:", r.expiresAt.toISOString());
   const agg = await getAggregate(round.id);
   console.log("average:", agg.results.map((x) => `${x.targetId.slice(0, 6)}=${x.tier}(${x.mean})`).join(" "));
   await pool.end();

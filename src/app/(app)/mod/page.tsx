@@ -2,10 +2,10 @@ import Link from "next/link";
 import { asc, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { pageModerator } from "@/lib/permissions";
 import { db, schema } from "@/db";
-import { dayKey } from "@/lib/dates";
-import { getCurrentRound, getRoundByDate } from "@/server/rounds/queries";
+import { DAILY_DRAW_HOUR, DEFAULT_TTL_HOURS, MAX_TTL_HOURS, MIN_TTL_HOURS, dueDailyKey, formatRemaining } from "@/lib/dates";
+import { getActiveRounds, getDailyRound } from "@/server/rounds/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DrawNow, IdeaBank, Members, PendingUsers } from "@/components/mod/mod-panels";
+import { CreateExtraRound, DrawNow, IdeaBank, Members, PendingUsers } from "@/components/mod/mod-panels";
 import { EmptyState } from "@/components/board/empty-state";
 
 const userCols = {
@@ -19,9 +19,10 @@ const userCols = {
 
 export default async function ModPage() {
   const me = await pageModerator();
-  const today = dayKey();
+  const now = new Date();
+  const dueKey = dueDailyKey(now);
 
-  const [pending, members, ideas, current, logs] = await Promise.all([
+  const [pending, members, ideas, active, daily, logs] = await Promise.all([
     db.select(userCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
     db.select(userCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
     db
@@ -36,7 +37,9 @@ export default async function ModPage() {
       .leftJoin(schema.user, eq(schema.user.id, schema.ideas.authorId))
       .orderBy(desc(schema.ideas.createdAt))
       .limit(1000),
-    getCurrentRound(),
+    getActiveRounds(now),
+    // null before 08:00: nothing is due yet, so no manual draw button
+    dueKey ? getDailyRound(dueKey) : Promise.resolve(null),
     db
       .select({ id: schema.auditLog.id, action: schema.auditLog.action, at: schema.auditLog.createdAt, actor: schema.user.name })
       .from(schema.auditLog)
@@ -46,7 +49,6 @@ export default async function ModPage() {
       .limit(15),
   ]);
 
-  const todayRound = current?.date === today ? await getRoundByDate(today) : null;
   const available = ideas.filter((i) => !i.usedAt).length;
 
   return (
@@ -55,23 +57,32 @@ export default async function ModPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Aujourd&apos;hui</CardTitle>
+          <CardTitle>Tier lists en cours ({active.length})</CardTitle>
           <CardDescription>
-            {available} idée(s) disponible(s) dans la banque.
-            {available === 0 && " ⚠️ Plus d'idées : pas de tier list demain !"}
+            Tirage automatique chaque jour à {DAILY_DRAW_HOUR} h, pour {DEFAULT_TTL_HOURS} h. {available} idée(s) disponible(s) dans la banque.
+            {available === 0 && " ⚠️ Banque vide : la prochaine idée proposée lancera le tirage manquant."}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {todayRound ? (
-            <p className="text-sm">
-              <Link href={`/r/${today}`} className="underline">
-                {todayRound.idea.title}
-              </Link>{" "}
-              — révéler ou relancer le tirage depuis la page du post.
-            </p>
-          ) : (
-            <DrawNow />
-          )}
+          <div className="flex flex-col gap-4">
+            {active.length > 0 && (
+              <ul className="flex flex-col gap-1 text-sm">
+                {active.map(({ round, idea }) => (
+                  <li key={round.id}>
+                    <Link href={`/r/${round.id}`} className="underline">
+                      {idea.title}
+                    </Link>{" "}
+                    <span className="text-muted-foreground">
+                      · {round.kind === "daily" ? "du jour" : "bonus"} · {formatRemaining(round.expiresAt.getTime() - now.getTime())}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {dueKey && !daily && <DrawNow />}
+            <CreateExtraRound defaultTtl={DEFAULT_TTL_HOURS} minTtl={MIN_TTL_HOURS} maxTtl={MAX_TTL_HOURS} disabled={available === 0} />
+            <p className="text-xs text-muted-foreground">Relancer le tirage : depuis la page d&apos;une tier list tant que personne n&apos;a joué.</p>
+          </div>
         </CardContent>
       </Card>
 

@@ -6,6 +6,8 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { db, pool, schema } from "@/db";
+import { addMemberToActiveRounds } from "@/server/rounds/targets";
+import { lockMembership } from "@/server/rounds/lock";
 
 async function main() {
   const email = process.argv[2]?.trim().toLowerCase();
@@ -19,7 +21,10 @@ async function main() {
     process.exit(1);
   }
   await db.transaction(async (tx) => {
+    await lockMembership(tx); // same lock as the draws (see src/server/rounds/lock.ts)
     await tx.update(schema.user).set({ role: "admin", status: "active", updatedAt: new Date() }).where(eq(schema.user.id, u.id));
+    // an account becoming active joins every tier list still active, like a validated member
+    if (u.status !== "active") await addMemberToActiveRounds(u.id, tx);
     await tx.insert(schema.auditLog).values({ actorId: null, action: "user.promote_admin", targetType: "user", targetId: u.id, meta: { via: "cli" } });
   });
   console.log(`${u.name} <${email}> is now admin.`);
