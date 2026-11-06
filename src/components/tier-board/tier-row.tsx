@@ -12,7 +12,7 @@ export const tierBg = {
 } as const satisfies Record<Tier, string>;
 
 const labelVariants = cva(
-  "flex w-14 shrink-0 items-center justify-center font-display text-3xl font-extrabold text-tier-foreground",
+  "flex w-16 shrink-0 items-center justify-center border-r-2 border-ink font-display text-3xl font-extrabold text-tier-foreground",
   { variants: { tier: tierBg } },
 );
 
@@ -26,7 +26,7 @@ const rowDelay = {
   F: "delay-500",
 } as const satisfies Record<Tier, string>;
 
-const rowVariants = cva("flex min-h-14 border-b-2 border-board last:border-b-0", {
+const rowVariants = cva("flex min-h-16 border-b-2 border-board last:border-b-0", {
   variants: {
     reveal: { true: "animate-rise", false: "" },
   },

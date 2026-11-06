@@ -7,8 +7,8 @@ export function PageSkeleton({ variant = "list" }: { variant?: "list" | "post" }
         <>
           <div className="h-10 w-full rounded-xl bg-secondary" />
           <div className="flex flex-col overflow-hidden rounded-2xl border-2 border-board-edge">
-            {["w-14 opacity-40 bg-tier-s", "w-14 opacity-40 bg-tier-a", "w-14 opacity-40 bg-tier-b", "w-14 opacity-40 bg-tier-c", "w-14 opacity-40 bg-tier-d", "w-14 opacity-40 bg-tier-f"].map((c) => (
-              <div key={c} className="flex h-14 border-b-2 border-board">
+            {["w-16 opacity-40 bg-tier-s", "w-16 opacity-40 bg-tier-a", "w-16 opacity-40 bg-tier-b", "w-16 opacity-40 bg-tier-c", "w-16 opacity-40 bg-tier-d", "w-16 opacity-40 bg-tier-f"].map((c) => (
+              <div key={c} className="flex h-16 border-b-2 border-board">
                 <div className={c} />
                 <div className="flex-1 bg-board-row" />
               </div>

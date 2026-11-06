@@ -175,3 +175,18 @@
     box-shadow: 0 1px 0 0 var(--ink);
   }
 }
+
+/* Instagram-like story ring, in the six tier colours */
+@utility story-ring {
+  background: conic-gradient(from 200deg, var(--tier-s), var(--tier-a), var(--tier-b), var(--tier-c), var(--tier-d), var(--tier-f), var(--tier-s));
+}
+@utility story-ring-seen {
+  background: var(--board-edge);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
