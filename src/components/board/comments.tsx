@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useRef, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { CornerDownRight, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -45,9 +45,17 @@ export function Comments({
   const [replyTo, setReplyTo] = useState<CommentView | null>(null);
   const [, startTransition] = useTransition();
   const input = useRef<HTMLTextAreaElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   const [list, apply] = useOptimistic(comments, (state, op: Op) =>
     op.kind === "add" ? [...state, op.comment] : state.map((c) => (c.id === op.id ? { ...c, deleted: true, body: "" } : c)),
   );
+
+  // keep the chat pinned to the latest message (desktop scroll box)
+  const count = list.length;
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && el.scrollHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
+  }, [count]);
 
   const send = () => {
     const text = body.trim();
@@ -87,13 +95,15 @@ export function Comments({
     });
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4 lg:min-h-0 lg:flex-1">
       <h2 className="text-2xl font-extrabold">
         Discussion <span className="text-muted-foreground">{list.filter((c) => !c.deleted).length}</span>
       </h2>
 
       {list.length === 0 && <EmptyState>Lance le débat 👇</EmptyState>}
 
+      {/* desktop: the chat scrolls inside the panel, composer stays at the bottom */}
+      <div ref={scroller} className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:scrollbar-theme lg:scrollbar-track-visible lg:pr-2">
       <ul className="flex flex-col gap-4">
         {list.map((c) => (
           <li key={c.id} className={c.pending ? "group flex animate-rise gap-3 opacity-60" : "group flex gap-3"}>
@@ -140,6 +150,8 @@ export function Comments({
           </li>
         ))}
       </ul>
+
+      </div>
 
       <form
         className="sticky bottom-24 flex flex-col gap-2 rounded-2xl border-2 border-ink bg-card p-2 shadow-pop lg:bottom-0"

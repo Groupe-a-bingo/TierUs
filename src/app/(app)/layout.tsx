@@ -22,7 +22,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <MobileHeader streak={streak} />
       <div className="lg:flex">
         <SideNav isMod={mod} streak={streak} me={{ name: u.name, avatarFileId: u.avatarFileId, role: u.role }} />
-        <main className="mx-auto w-full max-w-md px-4 pt-5 pb-32 lg:max-w-6xl lg:px-10 lg:pt-10 lg:pb-16">{children}</main>
+        {/* desktop: content keeps the 1080p ratio (see w-content in globals.css) */}
+        <div className="lg:min-w-0 lg:flex-1">
+          <main className="mx-auto w-full max-w-md px-4 pt-5 pb-32 lg:w-content lg:max-w-none lg:px-10 lg:pt-10 lg:pb-16">{children}</main>
+        </div>
         <BottomNav isMod={mod} />
       </div>
     </>

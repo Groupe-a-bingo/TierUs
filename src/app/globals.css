@@ -150,11 +150,22 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* subtle grain + warm vignette for depth */
+  }
+  /*
+   * Subtle grain + warm vignette, on its own fixed GPU layer.
+   * (A `background-attachment: fixed` on body forced a full repaint on every
+   * scroll frame: ~10x more raster work and visible scroll lag on desktop.)
+   */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    transform: translateZ(0);
     background-image:
       radial-gradient(120% 60% at 50% -10%, #2a2922 0%, transparent 60%),
       url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-    background-attachment: fixed;
   }
   h1, h2, h3 {
     @apply font-display tracking-tight;
@@ -197,4 +208,56 @@ html {
 }
 @utility scroll-gutter-stable {
   scrollbar-gutter: stable;
+}
+
+/*
+ * Desktop content width = the ratio measured on a 1920×1080 screen:
+ * 1152px of content in the 1650px box next to the sidebar (1664px minus the
+ * reserved scrollbar gutter) ≈ 69.82 %. Kept as a ratio so every screen
+ * width gets the same proportions as 1080p.
+ */
+@utility w-content {
+  width: calc(100% * 1152 / 1650);
+}
+
+/* desktop post page: fills the viewport exactly (main has pt-10 + pb-16) */
+@utility h-post {
+  height: calc(100dvh - 6.5rem);
+}
+
+/* scrollbar in the TierUs theme (chat, long columns) */
+@utility scrollbar-theme {
+  scrollbar-width: thin;
+  scrollbar-color: var(--board-edge) transparent;
+  &:hover {
+    scrollbar-color: var(--tier-b) transparent;
+  }
+  &::-webkit-scrollbar {
+    width: 10px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--board-edge);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background: var(--tier-b);
+    background-clip: padding-box;
+  }
+}
+
+/* chat only: a visible track behind the thumb */
+@utility scrollbar-track-visible {
+  scrollbar-color: var(--board-edge) var(--board-row);
+  &:hover {
+    scrollbar-color: var(--tier-b) var(--board-row);
+  }
+  &::-webkit-scrollbar-track {
+    background: var(--board-row);
+    border-radius: 999px;
+  }
 }

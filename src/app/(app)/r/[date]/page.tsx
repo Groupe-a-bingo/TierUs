@@ -94,11 +94,12 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
   }
 
   return (
-    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:items-start lg:gap-10">
+    <div className="flex flex-col gap-6 lg:grid lg:h-post lg:grid-cols-12 lg:gap-10">
+      {/* desktop: the page itself never scrolls, each column scrolls on its own */}
       <LiveRefresh roundId={round.id} />
 
       {/* while playing, the editor gets the full width on desktop */}
-      <div className={showEditor ? "flex flex-col gap-6 lg:col-span-12" : "flex flex-col gap-6 lg:col-span-7"}>
+      <div className={showEditor ? "flex flex-col gap-6 lg:col-span-12 lg:min-h-0 lg:overflow-y-auto lg:scrollbar-theme lg:pr-2 lg:pb-3" : "flex flex-col gap-6 lg:col-span-7 lg:min-h-0 lg:overflow-y-auto lg:scrollbar-theme lg:pr-2 lg:pb-3"}>
       <header className="flex flex-col gap-3">
         <Link href="/" className="flex w-fit items-center gap-1 rounded-full py-1 pr-3 text-sm font-semibold text-muted-foreground active:scale-95 lg:hidden">
           <ArrowLeft className="size-4" /> Board
@@ -157,7 +158,7 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
       </div>
 
       {/* Desktop: the thread lives in a sticky side panel, like a Discord forum post */}
-      <aside className={showEditor && !thread ? "hidden" : "flex flex-col gap-4 lg:sticky lg:top-10 lg:col-span-5 lg:max-h-dvh lg:overflow-y-auto lg:scroll-gutter-stable lg:rounded-3xl lg:border-2 lg:border-board-edge lg:bg-board lg:p-6"}>
+      <aside className={showEditor && !thread ? "hidden" : "flex flex-col gap-4 lg:col-span-5 lg:min-h-0 lg:overflow-hidden lg:rounded-3xl lg:border-2 lg:border-board-edge lg:bg-board lg:p-6"}>
         {thread ? (
           <>
             <ReactionBar roundId={round.id} reactions={thread[1]} compact />
