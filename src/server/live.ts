@@ -9,7 +9,8 @@ import { db } from "@/db";
 async function computeRoundVersion(roundId: string): Promise<string> {
   const { rows } = await db.execute<{ v: string }>(sql`
     select md5(concat_ws('|',
-      (select coalesce(revealed_at::text, '') || idea_id from rounds where id = ${roundId}),
+      -- idea (reroll) and active → archived switch
+      (select idea_id || (expires_at <= now())::text from rounds where id = ${roundId}),
       (select count(*) from round_targets where round_id = ${roundId}),
       (select count(*) || max(submitted_at)::text from submissions where round_id = ${roundId}),
       (select count(*) from placements p join submissions s on s.id = p.submission_id where s.round_id = ${roundId}),
@@ -23,7 +24,9 @@ async function computeRoundVersion(roundId: string): Promise<string> {
 async function computeBoardVersion(): Promise<string> {
   const { rows } = await db.execute<{ v: string }>(sql`
     select md5(concat_ws('|',
-      (select count(*) || coalesce(max(created_at)::text, '') || count(revealed_at) || coalesce(md5(string_agg(idea_id, ',' order by date)), '') from rounds),
+      (select count(*) || coalesce(max(created_at)::text, '') || coalesce(md5(string_agg(idea_id, ',' order by created_at, id)), '') from rounds),
+      -- a tier list moving from the home to the archives (expires_at index)
+      (select count(*) from rounds where expires_at <= now()),
       (select coalesce(max(updated_at)::text, '') from "user"),
       (select count(*) || coalesce(max(submitted_at)::text, '') from submissions),
       (select count(*) || coalesce(max(created_at)::text, '') || count(deleted_at) from comments),

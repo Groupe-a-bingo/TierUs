@@ -25,7 +25,8 @@ const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull(
 export const roleEnum = pgEnum("role", ["member", "moderator", "admin"]);
 export const userStatusEnum = pgEnum("user_status", ["pending", "active", "rejected"]);
 export const tierEnum = pgEnum("tier", ["S", "A", "B", "C", "D", "F"]);
-export const revealReasonEnum = pgEnum("reveal_reason", ["all_played", "moderator", "timeout"]);
+/** daily = the automatic 08:00 draw (one per day) · extra = created by a moderator */
+export const roundKindEnum = pgEnum("round_kind", ["daily", "extra"]);
 
 /* ---------- Better Auth core tables (+ app fields on user) ---------- */
 
@@ -40,8 +41,6 @@ export const user = pgTable("user", {
   role: roleEnum("role").notNull().default("member"),
   status: userStatusEnum("status").notNull().default("pending"),
   avatarFileId: text("avatar_file_id").references((): AnyPgColumn => files.id, { onDelete: "set null" }),
-  streak: integer("streak").notNull().default(0),
-  lastPlayedRoundDate: date("last_played_round_date"),
 });
 
 export const session = pgTable(
@@ -143,16 +142,20 @@ export const rounds = pgTable(
     ideaId: text("idea_id")
       .notNull()
       .references(() => ideas.id),
+    kind: roundKindEnum("kind").notNull().default("daily"),
+    /** Paris day the tier list belongs to (daily: the day of its 08:00 slot) */
     date: date("date").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
-    revealedAt: timestamp("revealed_at", { withTimezone: true }),
-    revealReason: revealReasonEnum("reveal_reason"),
+    /** starts_at + TTL. Active while starts_at <= now < expires_at, archived after. Never closes voting. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("rounds_date_uq").on(t.date),
-    // the worker looks for open rounds every minute
-    index("rounds_open_idx").on(t.startsAt).where(sql`${t.revealedAt} is null`),
+    // one automatic draw per day; extra tier lists are unlimited
+    uniqueIndex("rounds_daily_date_uq").on(t.date).where(sql`${t.kind} = 'daily'`),
+    // "which tier lists are still active" without scanning the table
+    index("rounds_expires_idx").on(t.expiresAt),
+    check("rounds_ttl_positive", sql`${t.expiresAt} > ${t.startsAt}`),
   ],
 );
 
@@ -179,10 +182,16 @@ export const submissions = pgTable(
     voterId: text("voter_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    /** first answer only (completing it for a newcomer keeps this date) */
     submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+    /** answered after the tier list was archived (doesn't count for the personal counter) */
     isLate: boolean("is_late").notNull().default(false),
   },
-  (t) => [uniqueIndex("submissions_round_voter_uq").on(t.roundId, t.voterId)],
+  (t) => [
+    uniqueIndex("submissions_round_voter_uq").on(t.roundId, t.voterId),
+    // personal counter: every answer of one member
+    index("submissions_voter_idx").on(t.voterId),
+  ],
 );
 
 export const placements = pgTable(

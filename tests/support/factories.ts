@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Tier } from "@/lib/tiers";
+import { drawExtra } from "@/server/rounds/draw";
 
 /** Wipe every app table (integration DB only, see integration-setup.ts). */
 export async function resetDb() {
@@ -34,6 +35,12 @@ export async function makeIdeas(count: number, prefix = "Idée") {
     .values(Array.from({ length: count }, (_, i) => ({ title: `${prefix} ${i + 1}` })))
     .returning();
 }
+
+/**
+ * A tier list active right now, whatever the time the suite runs (the daily
+ * one is only due from 08:00 Paris, so tests using the real clock use this).
+ */
+export const drawActive = (ttlHours = 24) => drawExtra(ttlHours);
 
 /** Submit a full tier list for `voter` with tier picked by `pick(targetIndex)`. */
 export function placementsFor(targets: { id: string }[], pick: (i: number) => Tier) {

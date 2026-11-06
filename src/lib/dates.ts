@@ -1,5 +1,13 @@
 export const APP_TZ = process.env.APP_TIMEZONE ?? "Europe/Paris";
 
+export const HOUR_MS = 60 * 60 * 1000;
+/** Local hour of the automatic daily draw (wall clock in APP_TZ, DST included). */
+export const DAILY_DRAW_HOUR = 8;
+/** Default lifetime of a tier list: 24 real hours (not "until tomorrow 08:00"). */
+export const DEFAULT_TTL_HOURS = 24;
+export const MIN_TTL_HOURS = 1;
+export const MAX_TTL_HOURS = 24 * 7;
+
 /** YYYY-MM-DD of `d` in the app timezone. */
 export function dayKey(d: Date = new Date(), tz = APP_TZ): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -10,7 +18,42 @@ export function dayKey(d: Date = new Date(), tz = APP_TZ): string {
   }).format(d);
 }
 
-export const ROUND_DURATION_MS = 24 * 60 * 60 * 1000;
+/** Wall-clock hour (0–23) of `d` in the app timezone. */
+export function localHour(d: Date = new Date(), tz = APP_TZ): number {
+  return Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(d));
+}
+
+/** Calendar arithmetic on a YYYY-MM-DD key (no timezone involved). */
+export function addDays(key: string, days: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/**
+ * Day whose daily tier list is due at `now`: today from 08:00 local time,
+ * nothing before. A daily missed during its day (empty bank, worker down) is
+ * caught up later that same day (next worker tick, next idea, restart), never
+ * the next morning: a prior day's catch-up drawn at e.g. 03:00 would overlap
+ * the 08:00 draw five hours later with a second "daily" dated yesterday.
+ */
+export function dueDailyKey(now: Date = new Date(), tz = APP_TZ): string | null {
+  return localHour(now, tz) >= DAILY_DRAW_HOUR ? dayKey(now, tz) : null;
+}
+
+/** Active = started and not yet expired. The TTL only decides home vs archives. */
+export function isActive(round: { startsAt: Date; expiresAt: Date }, now: Date = new Date()): boolean {
+  return round.startsAt.getTime() <= now.getTime() && now.getTime() < round.expiresAt.getTime();
+}
+
+/** "encore 5 h" / "encore 12 min" / "encore 2 j" */
+export function formatRemaining(ms: number): string {
+  if (ms <= 0) return "archivée";
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes < 60) return `encore ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `encore ${hours} h`;
+  return `encore ${Math.floor(hours / 24)} j`;
+}
 
 export function formatDayFr(key: string): string {
   const [y, m, d] = key.split("-").map(Number);
@@ -22,6 +65,11 @@ export function formatDayFr(key: string): string {
   }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
+/** "14:30" in the app timezone. */
+export function formatTimeFr(d: Date, tz = APP_TZ): string {
+  return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: tz }).format(d);
+}
+
 /** YYYY-MM-DD that is an actual calendar date (2026-02-31 → false). */
 export function isDayKey(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
@@ -29,3 +77,5 @@ export function isDayKey(s: string): boolean {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
+
+export const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);

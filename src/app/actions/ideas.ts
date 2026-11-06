@@ -8,6 +8,7 @@ import { requireActiveUser, requireModerator } from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
 import { badRequest, notFound, runAction } from "@/lib/errors";
+import { drawDaily } from "@/server/rounds/draw";
 
 const ideaSchema = z.object({
   title: z.string().trim().min(3, "Titre trop court").max(120, "120 caractères max"),
@@ -26,6 +27,18 @@ export async function addIdea(input: { title: string; description?: string }) {
       authorId: u.id,
     });
     revalidatePath("/ideas");
+    // The bank was empty at 08:00? This idea triggers the missing daily draw.
+    // Idempotent: nothing happens when today's daily already exists.
+    try {
+      const res = await drawDaily();
+      if (res.status === "created") {
+        await audit(u.id, "round.draw", "round", res.roundId, { trigger: "idea" });
+        revalidatePath("/", "layout");
+      }
+    } catch (err) {
+      // the idea is saved either way; the worker's catch-up tick will retry
+      console.error("[draw] catch-up after new idea failed", err);
+    }
   });
 }
 

@@ -175,10 +175,41 @@
   button, a {
     touch-action: manipulation; /* no 300ms double-tap delay */
   }
+  /*
+   * Touch screens: a long press on a control (tier buttons, avatars, tabs,
+   * stories, chat bubbles…) is a gesture, never a text selection or the iOS
+   * copy / save-image callout. Mouse users keep normal selection.
+   */
+  @media (hover: none) {
+    button,
+    a,
+    label,
+    img,
+    [role="button"],
+    [role="tab"],
+    [data-gesture] {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+  }
+  /* …but typing fields always keep selection, copy and paste */
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
 }
 
 @utility pb-safe {
   padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+/* home-screen app (viewport-fit=cover + translucent status bar): keep clear of the status bar */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 @utility pressable {

@@ -1,12 +1,12 @@
 import "dotenv/config";
 import { PgBoss } from "pg-boss";
-import { APP_TZ, dayKey } from "@/lib/dates";
-import { drawRound } from "@/server/rounds/draw";
-import { revealTimedOut } from "@/server/rounds/reveal";
+import { APP_TZ, DAILY_DRAW_HOUR, dueDailyKey, localHour } from "@/lib/dates";
+import { drawDaily } from "@/server/rounds/draw";
 import { pool } from "@/db";
 
 const DRAW = "draw-daily-round";
-const REVEAL = "reveal-timed-out";
+/** Queue of a removed job, still scheduled on deployed databases: dropped on start. */
+const LEGACY_REVEAL = "reveal-timed-out";
 
 async function main() {
   const boss = new PgBoss({ connectionString: process.env.DATABASE_URL!, schema: "pgboss" });
@@ -14,26 +14,25 @@ async function main() {
   await boss.start();
 
   await boss.createQueue(DRAW);
-  await boss.createQueue(REVEAL);
+  await boss.unschedule(LEGACY_REVEAL).catch(() => {});
 
-  // 00:00 in the app timezone; also runs at 00:05 as a safety net (idempotent)
-  await boss.schedule(DRAW, "0,5 0 * * *", null, { tz: APP_TZ });
-  await boss.schedule(REVEAL, "* * * * *", null, { tz: APP_TZ });
+  // 08:00 Europe/Paris (wall clock, DST handled by the cron timezone), then a
+  // catch-up tick every 15 minutes. drawDaily is idempotent: at most one daily per day.
+  await boss.schedule(DRAW, "*/15 * * * *", null, { tz: APP_TZ });
 
   await boss.work(DRAW, async () => {
-    const res = await drawRound(dayKey());
-    console.log(`[draw] ${dayKey()} →`, res.status);
-    if (res.status === "empty_bank") console.warn("[draw] La banque d'idées est vide !");
+    const now = new Date();
+    const res = await drawDaily(now);
+    if (res.status === "created") console.log(`[draw] ${dueDailyKey(now)} → created`);
+    // warn once per morning, not on every catch-up tick
+    if (res.status === "empty_bank" && localHour(now) === DAILY_DRAW_HOUR && now.getMinutes() < 15) {
+      console.warn("[draw] La banque d'idées est vide ! La prochaine idée proposée lancera le tirage.");
+    }
   });
 
-  await boss.work(REVEAL, async () => {
-    const done = await revealTimedOut();
-    if (done.length) console.log("[reveal] timeout:", done);
-  });
-
-  // Catch up on start (e.g. worker was down at midnight)
-  const res = await drawRound(dayKey());
-  console.log(`[worker] started (tz=${APP_TZ}); today's round: ${res.status}`);
+  // Catch up on start (e.g. the worker was down at 08:00)
+  const res = await drawDaily();
+  console.log(`[worker] started (tz=${APP_TZ}); daily ${dueDailyKey() ?? "(before 08:00)"}: ${res.status}`);
 
   const stop = async () => {
     await boss.stop({ graceful: true });

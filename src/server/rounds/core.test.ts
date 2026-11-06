@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { aggregate, computeStats } from "./aggregate";
 import { canSeeResults } from "./visibility";
 import { validatePlacements } from "./submit";
-import { nextStreak, displayStreak } from "@/server/streaks";
+import { countsForCounter } from "@/server/counter";
 import { scoreToTier } from "@/lib/tiers";
-import { isDayKey } from "@/lib/dates";
+import { HOUR_MS, addDays, dueDailyKey, formatRemaining, isActive, isDayKey, isUuid, localHour } from "@/lib/dates";
 
 describe("scoreToTier", () => {
   it("rounds to the nearest tier, .5 up", () => {
@@ -55,16 +55,85 @@ describe("aggregate", () => {
 });
 
 describe("canSeeResults", () => {
-  it("hides everything before reveal", () => {
-    expect(canSeeResults({ revealed: false, isCurrent: true, hasSubmitted: true })).toBe(false);
-    expect(canSeeResults({ revealed: false, isCurrent: false, hasSubmitted: true })).toBe(false);
+  it("opens results as soon as you answered, hides them otherwise (archived or not)", () => {
+    expect(canSeeResults({ hasSubmitted: true })).toBe(true);
+    expect(canSeeResults({ hasSubmitted: false })).toBe(false);
   });
-  it("requires playing the current round", () => {
-    expect(canSeeResults({ revealed: true, isCurrent: true, hasSubmitted: false })).toBe(false);
-    expect(canSeeResults({ revealed: true, isCurrent: true, hasSubmitted: true })).toBe(true);
+});
+
+describe("daily slot (08:00 Europe/Paris)", () => {
+  const tz = "Europe/Paris";
+  it("nothing is due before 08:00 (no prior-day catch-up), today's daily from 08:00 until midnight", () => {
+    // winter (UTC+1): 08:00 Paris = 07:00Z
+    expect(dueDailyKey(new Date("2026-11-06T06:59:59Z"), tz)).toBeNull();
+    expect(dueDailyKey(new Date("2026-11-06T07:00:00Z"), tz)).toBe("2026-11-06");
+    expect(dueDailyKey(new Date("2026-11-06T22:59:00Z"), tz)).toBe("2026-11-06"); // 23:59 Paris
+    // just after midnight Paris: the new day, before its 08:00
+    expect(dueDailyKey(new Date("2026-11-05T23:30:00Z"), tz)).toBeNull();
   });
-  it("opens archives to everyone", () => {
-    expect(canSeeResults({ revealed: true, isCurrent: false, hasSubmitted: false })).toBe(true);
+
+  it("stays at 08:00 local time across DST changes", () => {
+    // spring forward 2026-03-29: 08:00 CEST = 06:00Z
+    expect(dueDailyKey(new Date("2026-03-29T05:59:00Z"), tz)).toBeNull();
+    expect(dueDailyKey(new Date("2026-03-29T06:00:00Z"), tz)).toBe("2026-03-29");
+    // fall back 2026-10-25: 08:00 CET = 07:00Z
+    expect(dueDailyKey(new Date("2026-10-25T06:30:00Z"), tz)).toBeNull();
+    expect(dueDailyKey(new Date("2026-10-25T07:00:00Z"), tz)).toBe("2026-10-25");
+    expect(localHour(new Date("2026-10-25T07:00:00Z"), tz)).toBe(8);
+  });
+
+  it("addDays crosses months and years", () => {
+    expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+  });
+});
+
+describe("TTL lifecycle", () => {
+  const start = new Date("2026-11-06T07:00:00Z");
+  const round = { startsAt: start, expiresAt: new Date(start.getTime() + 24 * HOUR_MS) };
+  it("is active for exactly 24 real hours, then archived", () => {
+    expect(isActive(round, new Date("2026-11-06T06:59:59Z"))).toBe(false); // not started
+    expect(isActive(round, start)).toBe(true);
+    expect(isActive(round, new Date("2026-11-07T06:59:59Z"))).toBe(true);
+    expect(isActive(round, new Date("2026-11-07T07:00:00Z"))).toBe(false); // expires_at <= now
+  });
+
+  it("DST: 24 real hours make two dailies overlap in spring and leave a gap in autumn", () => {
+    const ttl = 24 * HOUR_MS;
+    // spring: drawn 08:00 CET (07:00Z) on the 28th, next at 08:00 CEST (06:00Z) on the 29th
+    const sat = { startsAt: new Date("2026-03-28T07:00:00Z"), expiresAt: new Date(Date.parse("2026-03-28T07:00:00Z") + ttl) };
+    const sun = { startsAt: new Date("2026-03-29T06:00:00Z"), expiresAt: new Date(Date.parse("2026-03-29T06:00:00Z") + ttl) };
+    const overlap = new Date("2026-03-29T06:30:00Z");
+    expect(isActive(sat, overlap) && isActive(sun, overlap)).toBe(true);
+    // autumn: drawn 08:00 CEST (06:00Z) on the 24th, next at 08:00 CET (07:00Z) on the 25th
+    const fri = { startsAt: new Date("2026-10-24T06:00:00Z"), expiresAt: new Date(Date.parse("2026-10-24T06:00:00Z") + ttl) };
+    const gap = new Date("2026-10-25T06:30:00Z");
+    expect(isActive(fri, gap)).toBe(false);
+    expect(dueDailyKey(gap, "Europe/Paris")).toBeNull(); // nothing new is due before 08:00
+  });
+
+  it("formats the remaining time", () => {
+    expect(formatRemaining(5 * HOUR_MS + 10 * 60_000)).toBe("encore 5 h");
+    expect(formatRemaining(12 * 60_000)).toBe("encore 12 min");
+    expect(formatRemaining(72 * HOUR_MS)).toBe("encore 3 j");
+    expect(formatRemaining(0)).toBe("archivée");
+  });
+});
+
+describe("personal counter rule", () => {
+  const expires = new Date("2026-11-07T07:00:00Z");
+  it("counts a first answer strictly before archiving only", () => {
+    expect(countsForCounter(new Date("2026-11-07T06:59:59Z"), expires)).toBe(true);
+    expect(countsForCounter(expires, expires)).toBe(false);
+    expect(countsForCounter(new Date("2026-11-08T00:00:00Z"), expires)).toBe(false);
+  });
+});
+
+describe("isUuid", () => {
+  it("accepts tier list ids, rejects dates and junk", () => {
+    expect(isUuid(crypto.randomUUID())).toBe(true);
+    expect(isUuid("2026-11-05")).toBe(false);
+    expect(isUuid("not-an-id")).toBe(false);
   });
 });
 
@@ -78,25 +147,6 @@ describe("validatePlacements", () => {
     expect(() => validatePlacements([p("a"), p("b"), p("zzz")], targets)).toThrow(/inconnu/);
     expect(() => validatePlacements([p("a"), p("a"), p("b")], targets)).toThrow(/deux fois/);
     expect(() => validatePlacements([p("a"), p("b")], targets)).toThrow(/tous/);
-  });
-});
-
-describe("streaks", () => {
-  it("increments when the previous round was played", () => {
-    expect(nextStreak({ current: 3, lastPlayed: "2026-11-04", roundDate: "2026-11-05", previousRoundDate: "2026-11-04" })).toBe(4);
-  });
-  it("skips days without a round", () => {
-    expect(nextStreak({ current: 3, lastPlayed: "2026-11-02", roundDate: "2026-11-05", previousRoundDate: "2026-11-02" })).toBe(4);
-  });
-  it("resets after a missed round", () => {
-    expect(nextStreak({ current: 3, lastPlayed: "2026-11-03", roundDate: "2026-11-05", previousRoundDate: "2026-11-04" })).toBe(1);
-  });
-  it("is idempotent for the same round", () => {
-    expect(nextStreak({ current: 3, lastPlayed: "2026-11-05", roundDate: "2026-11-05", previousRoundDate: "2026-11-04" })).toBe(3);
-  });
-  it("displays 0 once a round was missed", () => {
-    expect(displayStreak({ streak: 5, lastPlayed: "2026-11-03", currentRoundDate: "2026-11-05", previousRoundDate: "2026-11-04" })).toBe(0);
-    expect(displayStreak({ streak: 5, lastPlayed: "2026-11-04", currentRoundDate: "2026-11-05", previousRoundDate: "2026-11-04" })).toBe(5);
   });
 });
 

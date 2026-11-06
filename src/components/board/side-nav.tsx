@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Flame, LayoutList, Lightbulb, Shield } from "lucide-react";
+import { LayoutList, Lightbulb, Shield, Trophy } from "lucide-react";
 import { cva } from "class-variance-authority";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
-import { Wordmark } from "./wordmark";
+import { COUNTER_LABEL, Wordmark } from "./wordmark";
 
 const item = cva(
   "flex items-center gap-3 rounded-xl border-2 px-4 py-3 font-display text-base font-bold transition-transform duration-75 active:translate-y-0.5",
@@ -26,7 +26,7 @@ const profileCard = cva("mt-auto flex items-center gap-3 rounded-2xl border-2 p-
 });
 
 /** Desktop navigation (lg+). The phone keeps the sticky header + floating bottom bar. */
-export function SideNav({ isMod, streak, me }: { isMod: boolean; streak: number; me: { name: string; avatarFileId: string | null; role: string } }) {
+export function SideNav({ isMod, count, me }: { isMod: boolean; count: number; me: { name: string; avatarFileId: string | null; role: string } }) {
   const path = usePathname();
   const items = [
     { href: "/", label: "Board", Icon: LayoutList, match: (p: string) => p === "/" || p.startsWith("/r/") },
@@ -52,9 +52,9 @@ export function SideNav({ isMod, streak, me }: { isMod: boolean; streak: number;
       <Link href="/profile" className={profileCard({ active: path.startsWith("/profile") })}>
         <AvatarTile name={me.name} fileId={me.avatarFileId} size="sm" />
         <p className="min-w-0 flex-1 truncate font-display font-bold">{me.name}</p>
-        <span className="flex items-center gap-0.5 font-display font-extrabold text-streak" title="Jours de suite">
-          <Flame className="size-4" />
-          {streak}
+        <span className="flex items-center gap-0.5 font-display font-extrabold text-streak" title={COUNTER_LABEL} aria-label={`${count} ${COUNTER_LABEL.toLowerCase()}`}>
+          <Trophy className="size-4" aria-hidden />
+          {count}
         </span>
       </Link>
     </aside>

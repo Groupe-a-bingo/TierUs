@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Tier } from "@/lib/tiers";
 import { aggregate, type Vote } from "./aggregate";
@@ -7,28 +7,43 @@ const { rounds, ideas, roundTargets, submissions, placements, user } = schema;
 
 export type RoundRow = typeof rounds.$inferSelect;
 
-/** The current round = the most recent one. */
-export async function getCurrentRound(): Promise<RoundRow | null> {
-  const [r] = await db.select().from(rounds).orderBy(desc(rounds.date)).limit(1);
+/** Every tier list still active at `now`, newest first (uses the expires_at index). */
+export async function getActiveRounds(now = new Date()) {
+  return db
+    .select({ round: rounds, idea: { id: ideas.id, title: ideas.title } })
+    .from(rounds)
+    .innerJoin(ideas, eq(ideas.id, rounds.ideaId))
+    .where(and(gt(rounds.expiresAt, now), lte(rounds.startsAt, now)))
+    .orderBy(desc(rounds.createdAt), desc(rounds.id));
+}
+
+/** Has the daily tier list of this day been drawn already? */
+export async function getDailyRound(date: string) {
+  const [r] = await db
+    .select({ id: rounds.id })
+    .from(rounds)
+    .where(and(eq(rounds.kind, "daily"), eq(rounds.date, date)))
+    .limit(1);
   return r ?? null;
 }
 
-export async function getPreviousRoundDate(beforeDate: string): Promise<string | null> {
+/** Old `/r/YYYY-MM-DD` links: that day's daily tier list, else the first one created that day. */
+export async function getRoundIdByDate(date: string): Promise<string | null> {
   const [r] = await db
-    .select({ date: rounds.date })
+    .select({ id: rounds.id })
     .from(rounds)
-    .where(lt(rounds.date, beforeDate))
-    .orderBy(desc(rounds.date))
+    .where(eq(rounds.date, date))
+    .orderBy(sql`case when ${rounds.kind} = 'daily' then 0 else 1 end`, asc(rounds.createdAt))
     .limit(1);
-  return r?.date ?? null;
+  return r?.id ?? null;
 }
 
-export async function getRoundByDate(date: string) {
+export async function getRoundWithIdea(id: string) {
   const [r] = await db
     .select({ round: rounds, idea: { id: ideas.id, title: ideas.title, description: ideas.description } })
     .from(rounds)
     .innerJoin(ideas, eq(ideas.id, rounds.ideaId))
-    .where(eq(rounds.date, date))
+    .where(eq(rounds.id, id))
     .limit(1);
   return r ?? null;
 }

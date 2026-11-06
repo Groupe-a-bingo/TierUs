@@ -1,40 +1,57 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
+import { isNull, sql } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { pageUser } from "@/lib/permissions";
-import { listBoard, membersById } from "@/server/board";
+import { listBoard, membersById, type BoardPost } from "@/server/board";
 import { boardVersion } from "@/server/live";
 import { PinnedPost, PostCard } from "@/components/board/post-card";
 import { LiveRefresh } from "@/components/board/live-refresh";
-import { dayKey, formatDayFr } from "@/lib/dates";
+import { DAILY_DRAW_HOUR, dayKey, formatDayFr } from "@/lib/dates";
 import { EmptyState } from "@/components/board/empty-state";
 
 export default async function BoardPage({ searchParams }: { searchParams: Promise<{ q?: string | string[] }> }) {
   const u = await pageUser();
   const { q: rawQ } = await searchParams;
   const q = (Array.isArray(rawQ) ? rawQ[0] : rawQ)?.trim().slice(0, 80) || undefined;
+  const now = new Date();
 
-  const posts = await listBoard(u.id, { q });
-  const members = await membersById([...new Set(posts.flatMap((p) => p.top3))]);
-
-  const pinned = !q && posts[0]?.date === dayKey() ? posts[0] : null;
-  const archives = pinned ? posts.slice(1) : posts;
+  const [active, archives, bank] = await Promise.all([
+    // every active tier list (daily + extras, and two dailies around a DST change)
+    q ? Promise.resolve([] as BoardPost[]) : listBoard(u.id, { scope: "active", now }),
+    listBoard(u.id, { scope: "archived", q, now }),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.ideas)
+      .where(isNull(schema.ideas.usedAt))
+      .then((r) => r[0]?.n ?? 0),
+  ]);
+  const members = await membersById([...new Set([...active, ...archives].flatMap((p) => p.top3))]);
 
   return (
     <div className="flex flex-col gap-6">
       <LiveRefresh initial={await boardVersion()} />
       {/* phone: the sticky TierUs header (layout) is enough */}
       <header className="hidden lg:block">
-        <p className="text-sm font-semibold text-muted-foreground capitalize">{formatDayFr(dayKey())}</p>
+        <p className="text-sm font-semibold text-muted-foreground capitalize">{formatDayFr(dayKey(now))}</p>
         <h1 className="text-5xl font-extrabold">Le board</h1>
       </header>
 
       {!q &&
-        (pinned ? (
-          <PinnedPost post={pinned} members={members} />
+        (active.length ? (
+          <div className="flex flex-col gap-4">
+            {active.map((p) => (
+              <PinnedPost key={p.id} post={p} members={members} now={now} />
+            ))}
+          </div>
         ) : (
           <div className="flex flex-col gap-3 rounded-3xl border-2 border-dashed border-board-edge p-6 text-center">
-            <p className="font-display text-2xl font-extrabold">Pas de tier list aujourd&apos;hui 😶</p>
-            <p className="text-muted-foreground">La banque d&apos;idées est vide.</p>
+            <p className="font-display text-2xl font-extrabold">Pas de tier list en cours 😶</p>
+            <p className="text-muted-foreground">
+              {bank === 0
+                ? "La banque d'idées est vide : la prochaine idée proposée lance la tier list du jour."
+                : `La prochaine tier list est tirée à ${DAILY_DRAW_HOUR} h.`}
+            </p>
             <Link href="/ideas" className="mx-auto rounded-xl border-2 border-ink bg-primary px-5 py-3 font-display font-bold text-primary-foreground shadow-pop">
               Proposer une idée
             </Link>
@@ -61,7 +78,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
         </form>
         )}
         {archives.length === 0 ? (
-          <EmptyState>{q ? "Aucun résultat." : "Rien pour l'instant, revenez demain !"}</EmptyState>
+          <EmptyState>{q ? "Aucun résultat." : "Rien pour l'instant : les tier lists arrivent ici à la fin de leur durée."}</EmptyState>
         ) : (
           <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
             {archives.map((p) => (

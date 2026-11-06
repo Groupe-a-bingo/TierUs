@@ -3,13 +3,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { TIERS } from "@/lib/tiers";
 import { badRequest, notFound, HttpError } from "@/lib/errors";
-import { nextStreak } from "@/server/streaks";
-import { getPreviousRoundDate, getRoundById, getTargets } from "./queries";
-import { dayKey } from "@/lib/dates";
-import { revealIfAllPlayed } from "./reveal";
+import { getRoundById, getTargets } from "./queries";
 import { missingTargetsFor } from "./targets";
 
-const { submissions, placements, user } = schema;
+const { submissions, placements } = schema;
 
 export const submissionSchema = z.object({
   roundId: z.string().uuid(),
@@ -38,13 +35,18 @@ export function validatePlacements(input: SubmissionInput["placements"], targetI
   if (seen.size !== expected.size) throw badRequest("Place tous les membres avant de valider");
 }
 
-export async function submitTierList(voterId: string, raw: unknown) {
+/**
+ * Save a member's tier list. Voting stays open forever: an answer after the
+ * TTL is accepted (flagged late) and only misses the personal counter, which
+ * is derived from `submitted_at < expires_at` of the first answer.
+ */
+export async function submitTierList(voterId: string, raw: unknown, now = new Date()) {
   const parsed = submissionSchema.safeParse(raw);
   if (!parsed.success) throw badRequest("Tier list invalide");
   const input = parsed.data;
 
   const round = await getRoundById(input.roundId);
-  if (!round) throw notFound("Round introuvable");
+  if (!round) throw notFound("Tier list introuvable");
 
   const [existing] = await db
     .select({ id: submissions.id })
@@ -53,6 +55,7 @@ export async function submitTierList(voterId: string, raw: unknown) {
     .limit(1);
 
   // Already played: only accept the members added since (complement), keep the rest.
+  // The submission (and its date) is unchanged, so the counter can't count it twice.
   if (existing) {
     const missing = await missingTargetsFor(round.id, voterId);
     if (!missing.length) throw new HttpError(409, "Tu as déjà joué cette tier list");
@@ -69,15 +72,11 @@ export async function submitTierList(voterId: string, raw: unknown) {
         .values(ordered.map((p) => ({ submissionId: existing.id, targetId: p.targetId, tier: p.tier, position: (next[p.tier] = (next[p.tier] ?? 0) + 1) - 1 })))
         .onConflictDoNothing();
     });
-    return { roundDate: round.date };
+    return { roundId: round.id };
   }
 
   const targets = await getTargets(round.id);
   validatePlacements(input.placements, targets.map((t) => t.id));
-
-  // streak only for today's round (late answers on archives never count)
-  const isCurrent = round.date === dayKey();
-  const isLate = !!round.revealedAt;
 
   // normalise positions per tier (0..n) in the order given
   const counters: Record<string, number> = {};
@@ -88,25 +87,12 @@ export async function submitTierList(voterId: string, raw: unknown) {
   await db.transaction(async (tx) => {
     const inserted = await tx
       .insert(submissions)
-      .values({ roundId: round.id, voterId, isLate })
+      .values({ roundId: round.id, voterId, submittedAt: now, isLate: now.getTime() >= round.expiresAt.getTime() })
       .onConflictDoNothing()
       .returning({ id: submissions.id });
     if (!inserted.length) throw new HttpError(409, "Tu as déjà joué cette tier list");
     const submissionId = inserted[0].id;
     await tx.insert(placements).values(rows.map((r) => ({ ...r, submissionId })));
-
-    // Streak: only for the current round (late answers on archives don't count)
-    if (isCurrent) {
-      const [u] = await tx
-        .select({ streak: user.streak, last: user.lastPlayedRoundDate })
-        .from(user)
-        .where(eq(user.id, voterId))
-        .for("update");
-      const prev = await getPreviousRoundDate(round.date);
-      const streak = nextStreak({ current: u.streak, lastPlayed: u.last, roundDate: round.date, previousRoundDate: prev });
-      await tx.update(user).set({ streak, lastPlayedRoundDate: round.date }).where(eq(user.id, voterId));
-    }
   });
-  if (!round.revealedAt) await revealIfAllPlayed(round.id);
-  return { roundDate: round.date };
+  return { roundId: round.id };
 }

@@ -1,4 +1,4 @@
-import { Flame } from "lucide-react";
+import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** "TIERUS" with each letter on a tier-coloured key. */
@@ -25,13 +25,17 @@ export function Wordmark() {
   );
 }
 
-export function StreakChip({ streak }: { streak: number }) {
+export const COUNTER_LABEL = "Tier lists répondues à temps";
+
+/** Personal counter: tier lists answered before they were archived (never resets). */
+export function CounterChip({ count }: { count: number }) {
   return (
     <span
       className="flex items-center gap-1 rounded-full border-2 border-ink bg-card px-3 py-1 font-display text-lg font-extrabold text-streak shadow-pop-sm"
-      title="Jours de suite"
+      title={COUNTER_LABEL}
+      aria-label={`${count} ${COUNTER_LABEL.toLowerCase()}`}
     >
-      <Flame className="size-5" /> {streak}
+      <Trophy className="size-5" aria-hidden /> {count}
     </span>
   );
 }
