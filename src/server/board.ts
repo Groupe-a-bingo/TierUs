@@ -40,15 +40,20 @@ export async function listBoard(viewerId: string, opts: { q?: string; limit?: nu
       .from(reactions)
       .where(and(inArray(reactions.roundId, ids), isNull(reactions.commentId)))
       .groupBy(reactions.roundId, reactions.emoji),
+    // explicit aliases: an unqualified column inside the subquery resolved to
+    // `s` itself (s.round_id = s.round_id), counting every target as played
     db
-      .select({
-        roundId: roundTargets.roundId,
-        total: sql<number>`count(*)::int`,
-        played: sql<number>`count(*) filter (where exists (select 1 from ${submissions} s where s.round_id = ${roundTargets.roundId} and s.voter_id = ${roundTargets.userId}))::int`,
-      })
-      .from(roundTargets)
-      .where(inArray(roundTargets.roundId, ids))
-      .groupBy(roundTargets.roundId),
+      .execute<{ roundId: string; total: number; played: number }>(sql`
+        select rt.round_id as "roundId",
+               count(*)::int as total,
+               count(*) filter (
+                 where exists (select 1 from ${submissions} s where s.round_id = rt.round_id and s.voter_id = rt.user_id)
+               )::int as played
+        from ${roundTargets} rt
+        where rt.round_id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+        group by rt.round_id
+      `)
+      .then((r) => r.rows),
     db
       .select({ roundId: submissions.roundId })
       .from(submissions)
