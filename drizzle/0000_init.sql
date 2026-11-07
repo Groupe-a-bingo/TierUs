@@ -1,5 +1,5 @@
-CREATE TYPE "public"."reveal_reason" AS ENUM('all_played', 'moderator', 'timeout');--> statement-breakpoint
 CREATE TYPE "public"."role" AS ENUM('member', 'moderator', 'admin');--> statement-breakpoint
+CREATE TYPE "public"."round_kind" AS ENUM('daily', 'extra');--> statement-breakpoint
 CREATE TYPE "public"."tier" AS ENUM('S', 'A', 'B', 'C', 'D', 'F');--> statement-breakpoint
 CREATE TYPE "public"."user_status" AS ENUM('pending', 'active', 'rejected');--> statement-breakpoint
 CREATE TABLE "account" (
@@ -16,6 +16,12 @@ CREATE TABLE "account" (
 	"password" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "app_rate_limits" (
+	"key" text PRIMARY KEY NOT NULL,
+	"points" integer DEFAULT 0 NOT NULL,
+	"expire" bigint
 );
 --> statement-breakpoint
 CREATE TABLE "audit_log" (
@@ -91,11 +97,12 @@ CREATE TABLE "round_targets" (
 CREATE TABLE "rounds" (
 	"id" text PRIMARY KEY NOT NULL,
 	"idea_id" text NOT NULL,
+	"kind" "round_kind" DEFAULT 'daily' NOT NULL,
 	"date" date NOT NULL,
 	"starts_at" timestamp with time zone NOT NULL,
-	"revealed_at" timestamp with time zone,
-	"reveal_reason" "reveal_reason",
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"expires_at" timestamp with time zone NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "rounds_ttl_positive" CHECK ("rounds"."expires_at" > "rounds"."starts_at")
 );
 --> statement-breakpoint
 CREATE TABLE "session" (
@@ -129,8 +136,6 @@ CREATE TABLE "user" (
 	"role" "role" DEFAULT 'member' NOT NULL,
 	"status" "user_status" DEFAULT 'pending' NOT NULL,
 	"avatar_file_id" text,
-	"streak" integer DEFAULT 0 NOT NULL,
-	"last_played_round_date" date,
 	CONSTRAINT "user_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
@@ -147,6 +152,7 @@ ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("
 ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_actor_id_user_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "comments" ADD CONSTRAINT "comments_round_id_rounds_id_fk" FOREIGN KEY ("round_id") REFERENCES "public"."rounds"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "comments" ADD CONSTRAINT "comments_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "comments" ADD CONSTRAINT "comments_reply_to_id_comments_id_fk" FOREIGN KEY ("reply_to_id") REFERENCES "public"."comments"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "files" ADD CONSTRAINT "files_owner_id_user_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ideas" ADD CONSTRAINT "ideas_author_id_user_id_fk" FOREIGN KEY ("author_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "placements" ADD CONSTRAINT "placements_submission_id_submissions_id_fk" FOREIGN KEY ("submission_id") REFERENCES "public"."submissions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -160,12 +166,16 @@ ALTER TABLE "rounds" ADD CONSTRAINT "rounds_idea_id_ideas_id_fk" FOREIGN KEY ("i
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "submissions" ADD CONSTRAINT "submissions_round_id_rounds_id_fk" FOREIGN KEY ("round_id") REFERENCES "public"."rounds"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "submissions" ADD CONSTRAINT "submissions_voter_id_user_id_fk" FOREIGN KEY ("voter_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "user" ADD CONSTRAINT "user_avatar_file_id_files_id_fk" FOREIGN KEY ("avatar_file_id") REFERENCES "public"."files"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "account_user_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "audit_created_idx" ON "audit_log" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "comments_round_idx" ON "comments" USING btree ("round_id","created_at");--> statement-breakpoint
 CREATE INDEX "ideas_author_idx" ON "ideas" USING btree ("author_id");--> statement-breakpoint
 CREATE INDEX "ideas_available_idx" ON "ideas" USING btree ("used_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "reactions_uq" ON "reactions" USING btree ("round_id",coalesce("comment_id", ''),"user_id","emoji");--> statement-breakpoint
-CREATE UNIQUE INDEX "rounds_date_uq" ON "rounds" USING btree ("date");--> statement-breakpoint
+CREATE INDEX "reactions_comment_idx" ON "reactions" USING btree ("comment_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "rounds_daily_date_uq" ON "rounds" USING btree ("date") WHERE "rounds"."kind" = 'daily';--> statement-breakpoint
+CREATE INDEX "rounds_expires_idx" ON "rounds" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "session_user_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "submissions_round_voter_uq" ON "submissions" USING btree ("round_id","voter_id");
+CREATE UNIQUE INDEX "submissions_round_voter_uq" ON "submissions" USING btree ("round_id","voter_id");--> statement-breakpoint
+CREATE INDEX "submissions_voter_idx" ON "submissions" USING btree ("voter_id");

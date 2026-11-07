@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1793912961137,
+      "when": 1794010607646,
       "tag": "0000_init",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1793913049460,
-      "tag": "0001_app_rate_limits",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1793929598058,
-      "tag": "0002_integrity_indexes",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1794441600000,
-      "tag": "0003_multi_tierlists_ttl",
       "breakpoints": true
     }
   ]

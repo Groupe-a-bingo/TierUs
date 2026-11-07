@@ -1,5 +1,5 @@
 {
-  "id": "29856823-be70-428e-a3a9-00b92be9df29",
+  "id": "a0136478-819e-44ed-894f-e7c8851eb3fc",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -121,6 +121,38 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.app_rate_limits": {
+      "name": "app_rate_limits",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "points": {
+          "name": "points",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "expire": {
+          "name": "expire",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -309,6 +341,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "comments_reply_to_id_comments_id_fk": {
+          "name": "comments_reply_to_id_comments_id_fk",
+          "tableFrom": "comments",
+          "tableTo": "comments",
+          "columnsFrom": [
+            "reply_to_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -674,6 +719,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "reactions_comment_idx": {
+          "name": "reactions_comment_idx",
+          "columns": [
+            {
+              "expression": "comment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -799,6 +859,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "kind": {
+          "name": "kind",
+          "type": "round_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'daily'"
+        },
         "date": {
           "name": "date",
           "type": "date",
@@ -811,18 +879,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "revealed_at": {
-          "name": "revealed_at",
+        "expires_at": {
+          "name": "expires_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
-        },
-        "reveal_reason": {
-          "name": "reveal_reason",
-          "type": "reveal_reason",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
@@ -833,8 +894,8 @@
         }
       },
       "indexes": {
-        "rounds_date_uq": {
-          "name": "rounds_date_uq",
+        "rounds_daily_date_uq": {
+          "name": "rounds_daily_date_uq",
           "columns": [
             {
               "expression": "date",
@@ -844,6 +905,22 @@
             }
           ],
           "isUnique": true,
+          "where": "\"rounds\".\"kind\" = 'daily'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "rounds_expires_idx": {
+          "name": "rounds_expires_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -867,7 +944,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "rounds_ttl_positive": {
+          "name": "rounds_ttl_positive",
+          "value": "\"rounds\".\"expires_at\" > \"rounds\".\"starts_at\""
+        }
+      },
       "isRLSEnabled": false
     },
     "public.session": {
@@ -1029,6 +1111,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "submissions_voter_idx": {
+          "name": "submissions_voter_idx",
+          "columns": [
+            {
+              "expression": "voter_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1135,23 +1232,24 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "streak": {
-          "name": "streak",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "last_played_round_date": {
-          "name": "last_played_round_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "user_avatar_file_id_files_id_fk": {
+          "name": "user_avatar_file_id_files_id_fk",
+          "tableFrom": "user",
+          "tableTo": "files",
+          "columnsFrom": [
+            "avatar_file_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "user_email_unique": {
@@ -1219,15 +1317,6 @@
     }
   },
   "enums": {
-    "public.reveal_reason": {
-      "name": "reveal_reason",
-      "schema": "public",
-      "values": [
-        "all_played",
-        "moderator",
-        "timeout"
-      ]
-    },
     "public.role": {
       "name": "role",
       "schema": "public",
@@ -1235,6 +1324,14 @@
         "member",
         "moderator",
         "admin"
+      ]
+    },
+    "public.round_kind": {
+      "name": "round_kind",
+      "schema": "public",
+      "values": [
+        "daily",
+        "extra"
       ]
     },
     "public.tier": {

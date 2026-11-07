@@ -1,4 +1,0 @@
-ALTER TABLE "comments" ADD CONSTRAINT "comments_reply_to_id_comments_id_fk" FOREIGN KEY ("reply_to_id") REFERENCES "public"."comments"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user" ADD CONSTRAINT "user_avatar_file_id_files_id_fk" FOREIGN KEY ("avatar_file_id") REFERENCES "public"."files"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "reactions_comment_idx" ON "reactions" USING btree ("comment_id");--> statement-breakpoint
-CREATE INDEX "rounds_open_idx" ON "rounds" USING btree ("starts_at") WHERE "rounds"."revealed_at" is null;
