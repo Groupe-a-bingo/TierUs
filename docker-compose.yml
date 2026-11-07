@@ -1,6 +1,14 @@
+x-logging: &logging
+  # Docker keeps container logs forever otherwise.
+  driver: json-file
+  options: { max-size: 10m, max-file: "3" }
+
 x-app: &app
   build: .
-  image: tierus-app
+  # Production sets APP_IMAGE to the GHCR image of the deployed commit
+  # (deploy/tierus-deploy); locally it is built from this checkout.
+  image: ${APP_IMAGE:-tierus-app}
+  logging: *logging
   restart: unless-stopped
   env_file: .env
   environment:
@@ -18,6 +26,7 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-tierus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}

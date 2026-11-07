@@ -61,8 +61,54 @@ npm run admin:promote -- ton@email.fr
 
 ## Production
 
-- Retirer le mapping de port de `db` dans `docker-compose.yml`.
-- Renseigner `CLIENT_IP_HEADER` (ou à défaut `TRUSTED_PROXIES`, IP exactes du reverse proxy).
-- Passer `BETTER_AUTH_URL` en HTTPS.
-- Lancer `next start` et le worker comme deux process séparés.
-- Sauvegarder le volume `pgdata` et le dossier `./storage`.
+Prod : https://tierus.grpbingo.win, sur `vnic-docker`, derrière le Caddy en conteneur (`/opt/stacks/caddy`).
+
+### Déploiement continu (GHCR + SSH)
+
+Quand la CI passe sur un push sur `main`, `.github/workflows/deploy.yml` construit l'image en amd64 et arm64 (`image.yml`), la publie en `ghcr.io/groupe-a-bingo/tierus:<commit>` (et `:latest`), puis se connecte en SSH et lance `tierus-deploy <commit>` sur le serveur. Relance à la main : Actions → Deploy → Run workflow. Le serveur ne build jamais et n'a pas le code : il récupère l'image testée.
+
+Le script (`deploy/tierus-deploy`) :
+- récupère l'image avec le `GITHUB_TOKEN` du job, envoyé sur stdin et jamais stocké (le package est privé) ;
+- refuse une image plus ancienne que celle en place (un run lent n'annule pas un déploiement plus récent ; retour en arrière voulu : `ALLOW_OLDER=1 tierus-deploy <commit>`) ;
+- extrait `docker-compose.yml` de l'image, pour qu'il corresponde toujours à la version déployée ;
+- écrit `APP_IMAGE=<image>:<commit>` dans `.env` (les commandes `docker compose` à la main l'utilisent aussi) ;
+- lance `docker compose up -d` : `migrate` passe d'abord, puis `app` et `worker` ; échec si l'app ne répond pas en 3 min ;
+- supprime les anciennes images. Les volumes ne sont jamais touchés.
+
+Mise en place du serveur, une fois :
+
+```bash
+docker network create tierus-proxy
+docker network connect tierus-proxy caddy        # + l'ajouter dans /opt/stacks/caddy/docker-compose.yml
+sudo install -d -o deploy -g deploy -m 750 /srv/tierus
+sudo install -d -o 1000 -g 1000 /srv/tierus/storage   # l'image tourne en `node` (uid 1000)
+sudo -u deploy install -m 600 /dev/null /srv/tierus/.env   # voir .env.example
+sudo -u deploy cp deploy/docker-compose.override.yml /srv/tierus/
+# Hors du dossier de l'app, appartient à root : un commit ne peut pas changer ce que la clé exécute.
+sudo install -o root -g root -m 755 deploy/tierus-deploy /usr/local/bin/
+# /home/deploy/.ssh/authorized_keys :
+restrict,command="/usr/local/bin/tierus-deploy" ssh-ed25519 AAAA… tierus-github-deploy
+```
+
+`.env` du serveur : `BETTER_AUTH_URL=https://tierus.grpbingo.win`, `CLIENT_IP_HEADER=x-real-ip` (posé par Caddy), un `POSTGRES_PASSWORD` et un `BETTER_AUTH_SECRET` aléatoires.
+
+Caddy :
+
+```
+tierus.grpbingo.win {
+    tls {
+        dns cloudflare {env.CF_API_TOKEN}
+    }
+    encode zstd gzip
+    reverse_proxy tierus-app:3010 {
+        header_up X-Real-IP {remote_host}
+    }
+}
+```
+
+GitHub (Settings → Secrets and variables → Actions, au niveau du repo : les environnements ne sont pas disponibles sur un repo privé en plan gratuit) : secret `DEPLOY_SSH_KEY` (la clé privée), variables `DEPLOY_HOST`, `DEPLOY_KNOWN_HOSTS` (lignes `ssh-keyscan`), `DEPLOY_USER` (défaut `deploy`), `DEPLOY_PORT` (défaut 22).
+
+- La commande forcée ignore tout sauf l'id de commit, et `restrict` coupe shell, PTY et forwarding. `deploy` est dans le groupe `docker`, donc équivalent root : c'est cette commande forcée qui empêche une clé fuitée de devenir un shell root.
+- Après une modification de `deploy/tierus-deploy`, le réinstaller (ligne `install` ci-dessus) : le serveur ne l'exécute jamais depuis le repo.
+- Seuls Caddy et l'app doivent être sur `tierus-proxy` : l'app fait confiance à `X-Real-IP`.
+- Sauvegarder le volume `tierus_pgdata` et `/srv/tierus/storage`.

@@ -1,0 +1,77 @@
+# Once CI passes on main: build the image (image.yml), publish it to GHCR as
+# ghcr.io/<owner>/tierus:<commit>, then deploy that commit over SSH. The SSH
+# key can only run /usr/local/bin/tierus-deploy on the server (forced
+# command). See README, "Déploiement".
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Redeploy main by hand (Actions → Deploy → Run workflow).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  image:
+    # Only a green CI run of a push to main of this repository (never a PR,
+    # never a fork), or a manual run on main.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    uses: ./.github/workflows/image.yml
+    with:
+      sha: ${{ github.event.workflow_run.head_sha || github.sha }}
+    permissions:
+      contents: read
+      packages: write
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # One deploy at a time; a newer pending one replaces an older one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    # The package is private: the server pulls it with this job's short-lived
+    # token, sent on stdin and never stored there.
+    permissions:
+      packages: read
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      REGISTRY_USER: ${{ github.actor }}
+      REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Deploy over SSH
+        run: |
+          set -eu
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
+            echo "::error::Set the DEPLOY_HOST and DEPLOY_KNOWN_HOSTS variables and the DEPLOY_SSH_KEY secret"
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pinned host key: never trust whatever answers on first use.
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The forced command ignores everything but this commit id.
+          printf '%s\n%s\n' "$REGISTRY_USER" "$REGISTRY_TOKEN" |
+            ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+              -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=20 -o ServerAliveInterval=15 \
+              "$DEPLOY_USER@$DEPLOY_HOST" "$SHA"
+      - if: always()
+        run: rm -f ~/.ssh/deploy_key

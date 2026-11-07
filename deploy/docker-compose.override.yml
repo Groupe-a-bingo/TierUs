@@ -1,0 +1,17 @@
+# Server only: copy to /srv/tierus/docker-compose.override.yml (compose loads
+# it automatically). Puts the app on the network shared with the Caddy
+# container, under a name that cannot clash with another stack's "app".
+# Only Caddy and this app may join tierus-proxy: the app trusts X-Real-IP.
+services:
+  app:
+    networks:
+      default: {}
+      tierus-proxy:
+        aliases: [tierus-app]
+  # Postgres stays on the stack's internal network in production.
+  db:
+    ports: !reset []
+
+networks:
+  tierus-proxy:
+    external: true
