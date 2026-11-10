@@ -3,13 +3,14 @@ import { pageUser } from "@/lib/permissions";
 import { db, schema } from "@/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { IdeaForm } from "@/components/ideas/idea-form";
+import { MyIdeas } from "@/components/ideas/my-ideas";
 import { EmptyState } from "@/components/board/empty-state";
 
 export default async function IdeasPage() {
   const u = await pageUser();
-  // Only the viewer's own ideas, and never whether they were drawn (keeps the surprise)
+  // Only the viewer's own ideas. "Played" = already drawn into a tier list, which everyone has seen by then.
   const mine = await db
-    .select({ id: schema.ideas.id, title: schema.ideas.title, description: schema.ideas.description, createdAt: schema.ideas.createdAt })
+    .select({ id: schema.ideas.id, title: schema.ideas.title, description: schema.ideas.description, usedAt: schema.ideas.usedAt })
     .from(schema.ideas)
     .where(eq(schema.ideas.authorId, u.id))
     .orderBy(desc(schema.ideas.createdAt))
@@ -35,14 +36,7 @@ export default async function IdeasPage() {
         {mine.length === 0 ? (
           <EmptyState>Tu n&apos;as encore rien proposé.</EmptyState>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {mine.map((i) => (
-              <li key={i.id} className="rounded-lg border border-border p-3">
-                <p className="font-medium">{i.title}</p>
-                {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
-              </li>
-            ))}
-          </ul>
+          <MyIdeas ideas={mine.map((i) => ({ id: i.id, title: i.title, description: i.description, played: !!i.usedAt }))} />
         )}
       </section>
     </div>

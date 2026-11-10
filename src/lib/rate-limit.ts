@@ -10,6 +10,8 @@ type LimitName = keyof typeof LIMITS;
 /** points per duration (seconds) — see plan "Sécurité". */
 const LIMITS = {
   idea: { points: 10, duration: 60 * 60 * 24 },
+  // a member editing or deleting their own ideas
+  ideaEdit: { points: 30, duration: 60 * 60 },
   comment: { points: 10, duration: 60 },
   reaction: { points: 60, duration: 60 },
   upload: { points: 5, duration: 60 * 60 },

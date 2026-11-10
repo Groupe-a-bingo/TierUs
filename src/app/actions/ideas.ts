@@ -1,14 +1,14 @@
 "use server";
 
 import { z } from "zod";
-import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
-import { requireActiveUser, requireModerator } from "@/lib/permissions";
+import { isModerator, requireActiveUser } from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
-import { badRequest, notFound, runAction } from "@/lib/errors";
+import { badRequest, runAction } from "@/lib/errors";
 import { drawDaily } from "@/server/rounds/draw";
+import { editIdea, removeIdea } from "@/server/ideas";
 
 const ideaSchema = z.object({
   title: z.string().trim().min(3, "Titre trop court").max(120, "120 caractères max"),
@@ -42,36 +42,39 @@ export async function addIdea(input: { title: string; description?: string }) {
   });
 }
 
+/** Author or moderator, while the idea has never been played. */
+async function ideaActor() {
+  const u = await requireActiveUser();
+  const mod = isModerator(u);
+  await rateLimit(mod ? "modAction" : "ideaEdit", u.id);
+  return { id: u.id, isModerator: mod };
+}
+
+function revalidateIdeas() {
+  revalidatePath("/ideas");
+  revalidatePath("/mod");
+}
+
 export async function updateIdea(id: string, input: { title: string; description?: string }) {
   return runAction(async () => {
-    const mod = await requireModerator();
-    await rateLimit("modAction", mod.id);
+    const actor = await ideaActor();
     const parsed = ideaSchema.safeParse(input);
     if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message);
     const ideaId = z.string().uuid().safeParse(id);
     if (!ideaId.success) throw badRequest();
-    const [idea] = await db.select({ usedAt: schema.ideas.usedAt }).from(schema.ideas).where(eq(schema.ideas.id, ideaId.data)).limit(1);
-    if (!idea) throw notFound();
-    if (idea.usedAt) throw badRequest("Cette idée a déjà été jouée, elle ne peut plus être modifiée");
-    await db
-      .update(schema.ideas)
-      .set({ title: parsed.data.title, description: parsed.data.description || null })
-      .where(and(eq(schema.ideas.id, ideaId.data), isNull(schema.ideas.usedAt)));
-    await audit(mod.id, "idea.update", "idea", id, parsed.data);
-    revalidatePath("/mod");
+    await editIdea(actor, ideaId.data, { title: parsed.data.title, description: parsed.data.description || null });
+    await audit(actor.id, "idea.update", "idea", ideaId.data, parsed.data);
+    revalidateIdeas();
   });
 }
 
 export async function deleteIdea(id: string) {
   return runAction(async () => {
-    const mod = await requireModerator();
-    await rateLimit("modAction", mod.id);
-    const ideaId = z.string().uuid().parse(id);
-    const [used] = await db.select({ id: schema.rounds.id }).from(schema.rounds).where(eq(schema.rounds.ideaId, ideaId)).limit(1);
-    if (used) throw badRequest("Cette idée a déjà été jouée, impossible de la supprimer");
-    const res = await db.delete(schema.ideas).where(eq(schema.ideas.id, ideaId)).returning({ title: schema.ideas.title });
-    if (!res.length) throw notFound();
-    await audit(mod.id, "idea.delete", "idea", ideaId, { title: res[0].title });
-    revalidatePath("/mod");
+    const actor = await ideaActor();
+    const ideaId = z.string().uuid().safeParse(id);
+    if (!ideaId.success) throw badRequest();
+    const removed = await removeIdea(actor, ideaId.data);
+    await audit(actor.id, "idea.delete", "idea", ideaId.data, { title: removed.title });
+    revalidateIdeas();
   });
 }
