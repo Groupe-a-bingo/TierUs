@@ -239,7 +239,7 @@ export function TierEditor({
                   className={canDrag ? "cursor-grab active:cursor-grabbing" : ""}
                   {...dragProps(m.id)}
                 >
-                  <AvatarTile name={m.name} fileId={m.avatarFileId} size="sm" shape="round" state={dragId === m.id ? "dim" : "idle"} />
+                  <AvatarTile name={m.name} fileId={m.avatarFileId} size="sm" state={dragId === m.id ? "dim" : "idle"} />
                 </button>
               ))}
             </div>

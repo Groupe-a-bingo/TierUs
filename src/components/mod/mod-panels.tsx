@@ -59,7 +59,7 @@ export function Members({ users, viewerId, viewerIsAdmin }: { users: U[]; viewer
     <ul className="flex flex-col gap-3">
       {users.map((u) => (
         <li key={u.id} className="flex items-center gap-3">
-          <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" shape="round" />
+          <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" />
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2 truncate font-medium">
               {u.name}

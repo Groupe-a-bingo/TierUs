@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Member avatar as a TierUs "sticker": ink outline, rounded corners, photo
- * slightly punched up. Members without a photo get a tier-coloured tile.
+ * slightly punched up. Always a square (never a circle), at every size. Members without a photo get a tier-coloured tile.
  */
 const tileVariants = cva(
   "relative flex shrink-0 items-center justify-center overflow-hidden bg-secondary font-display font-extrabold select-none",
@@ -18,10 +18,6 @@ const tileVariants = cva(
         story: "size-16 rounded-xl border-2 border-ink text-xl",
         xl: "size-36 rounded-3xl border-4 border-ink text-5xl shadow-pop-lg",
       },
-      shape: {
-        square: "",
-        round: "rounded-full",
-      },
       state: {
         idle: "",
         selected: "ring-4 ring-primary",
@@ -33,7 +29,7 @@ const tileVariants = cva(
         pop: "animate-pop-in",
       },
     },
-    defaultVariants: { size: "md", shape: "square", state: "idle", motion: "none" },
+    defaultVariants: { size: "md", state: "idle", motion: "none" },
   },
 );
 
@@ -68,9 +64,9 @@ const initials = (name: string) =>
     .slice(0, 2)
     .toUpperCase();
 
-export function AvatarTile({ name, fileId, size, shape, state, motion, title, priority }: AvatarTileProps) {
+export function AvatarTile({ name, fileId, size, state, motion, title, priority }: AvatarTileProps) {
   return (
-    <div className={cn(tileVariants({ size, shape, state, motion }), !fileId && fallbackColor(name))} title={title ?? name}>
+    <div className={cn(tileVariants({ size, state, motion }), !fileId && fallbackColor(name))} title={title ?? name}>
       {fileId ? (
         <Image
           src={`/api/files/${fileId}`}
