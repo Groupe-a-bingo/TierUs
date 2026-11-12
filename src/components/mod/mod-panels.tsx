@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { cva } from "class-variance-authority";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
@@ -91,6 +92,11 @@ export function Members({ users, viewerId, viewerIsAdmin }: { users: U[]; viewer
   );
 }
 
+// played ideas stay listed, greyed out and read-only
+const ideaRow = cva("flex flex-col gap-2 rounded-lg border p-3", {
+  variants: { used: { true: "border-board-edge opacity-50", false: "border-border" } },
+});
+
 type Idea = { id: string; title: string; description: string | null; author: string | null; used: boolean };
 
 export function IdeaBank({ ideas }: { ideas: Idea[] }) {
@@ -110,7 +116,7 @@ export function IdeaBank({ ideas }: { ideas: Idea[] }) {
       {shown.length === 0 && <EmptyState>Aucune idée ici.</EmptyState>}
       <ul className="flex flex-col gap-2">
         {shown.map((i) => (
-          <li key={i.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <li key={i.id} className={ideaRow({ used: i.used })}>
             {editing === i.id ? (
               <IdeaForm editId={i.id} initial={{ title: i.title, description: i.description ?? "" }} onDone={() => setEditing(null)} />
             ) : (
