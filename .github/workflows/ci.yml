@@ -3,7 +3,22 @@ name: CI
 on:
   push:
     branches: [main]
+    # Docs-only changes don't touch the app: no lint/tests/build (and so no deploy).
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".vscode/**"
+      - ".claude/**"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".vscode/**"
+      - ".claude/**"
 
 concurrency:
   group: ci-${{ github.ref }}

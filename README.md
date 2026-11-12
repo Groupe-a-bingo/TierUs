@@ -47,6 +47,9 @@ npm run admin:promote -- ton@email.fr
 
 ## Architecture
 
+Système visuel (couleurs, typo, avatars, composants) : voir [`DESIGN.md`](DESIGN.md).
+
+
 - `src/db/schema.ts` : le schéma Drizzle (tables Better Auth et tables de l'app).
 - `src/server/rounds/` : le tirage (quotidien unique par jour via un index unique partiel, supplémentaires illimités, sans doublon d'idée avec `SKIP LOCKED`), la soumission, l'agrégation et les règles de visibilité.
 - `src/server/members.ts` : validation / bannissement d'un membre et mise à jour des tier lists actives dans la même transaction.
