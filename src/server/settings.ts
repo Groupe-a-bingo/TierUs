@@ -26,6 +26,9 @@ export async function getIdeaValidation(tx: Tx | typeof db = db, { lock = false 
  */
 export async function setIdeaValidation(enabled: boolean, actorId: string): Promise<{ approved: number }> {
   return db.transaction(async (tx) => {
+    // make sure the row exists so FOR UPDATE has something to lock: two admins
+    // switching it for the first time at once then run one after the other
+    await tx.insert(schema.appSettings).values({ key: IDEA_VALIDATION, value: false }).onConflictDoNothing();
     const [row] = await tx
       .select({ value: schema.appSettings.value })
       .from(schema.appSettings)

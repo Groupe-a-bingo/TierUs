@@ -45,7 +45,7 @@ export default async function IdeasPage() {
         {mine.length === 0 ? (
           <EmptyState>Tu n&apos;as encore rien proposé.</EmptyState>
         ) : (
-          <MyIdeas needsReview={needsReview} ideas={mine.map((i) => ({ id: i.id, title: i.title, description: i.description, played: !!i.usedAt, status: i.status }))} />
+          <MyIdeas validation={validation} isModerator={isModerator(u)} ideas={mine.map((i) => ({ id: i.id, title: i.title, description: i.description, played: !!i.usedAt, status: i.status }))} />
         )}
       </section>
     </div>

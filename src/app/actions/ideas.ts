@@ -10,6 +10,8 @@ import { catchUpDaily } from "@/server/rounds/catch-up";
 import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
 
 const reviewDecision = z.enum(["approved", "rejected"]);
+/** the exact text the moderator saw (not trimmed: compared as stored) */
+const reviewedText = z.object({ title: z.string().max(120), description: z.string().max(500).nullable() });
 
 const ideaSchema = z.object({
   title: z.string().trim().min(3, "Titre trop court").max(120, "120 caractères max"),
@@ -25,7 +27,10 @@ export async function addIdea(input: { title: string; description?: string }) {
     const status = await createIdea({ id: u.id, isModerator: isModerator(u) }, { title: parsed.data.title, description: parsed.data.description || null });
     revalidatePath("/ideas");
     if (status === "pending") revalidatePath("/mod");
-    else await catchUpDaily(u.id, "idea");
+    else {
+      revalidatePath("/"); // bank counter
+      await catchUpDaily(u.id, "idea");
+    }
     return { status };
   });
 }
@@ -50,14 +55,12 @@ export async function updateIdea(id: string, input: { title: string; description
     if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message);
     const ideaId = z.string().uuid().safeParse(id);
     if (!ideaId.success) throw badRequest();
-    const status = await editIdea(actor, ideaId.data, { title: parsed.data.title, description: parsed.data.description || null });
-    await audit(actor.id, "idea.update", "idea", ideaId.data, { ...parsed.data, status });
+    const { status, previous } = await editIdea(actor, ideaId.data, { title: parsed.data.title, description: parsed.data.description || null });
+    await audit(actor.id, "idea.update", "idea", ideaId.data, { ...parsed.data, from: previous, to: status });
     revalidateIdeas();
-    // a refused idea fixed while validation is off lands in the bank: maybe the missing daily
-    if (status === "approved") {
-      revalidatePath("/");
-      await catchUpDaily(actor.id, "idea");
-    }
+    // the idea entered or left the bank: board counter (and maybe the missing daily)
+    if (status !== previous && (status === "approved" || previous === "approved")) revalidatePath("/");
+    if (status === "approved" && previous !== "approved") await catchUpDaily(actor.id, "idea");
     return { status };
   });
 }
@@ -74,14 +77,15 @@ export async function deleteIdea(id: string) {
 }
 
 /** Moderators approve or refuse an idea waiting for validation. */
-export async function reviewIdeaAction(id: string, decision: "approved" | "rejected") {
+export async function reviewIdeaAction(id: string, decision: "approved" | "rejected", seen: { title: string; description: string | null }) {
   return runAction(async () => {
     const mod = await requireModerator();
     await rateLimit("modAction", mod.id);
     const ideaId = z.string().uuid().safeParse(id);
     const parsed = reviewDecision.safeParse(decision);
-    if (!ideaId.success || !parsed.success) throw badRequest();
-    const idea = await reviewIdea(ideaId.data, parsed.data);
+    const text = reviewedText.safeParse(seen);
+    if (!ideaId.success || !parsed.success || !text.success) throw badRequest();
+    const idea = await reviewIdea(ideaId.data, parsed.data, text.data);
     await audit(mod.id, parsed.data === "approved" ? "idea.approve" : "idea.reject", "idea", ideaId.data, { title: idea.title });
     revalidateIdeas();
     if (parsed.data === "approved") {

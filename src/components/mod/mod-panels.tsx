@@ -19,13 +19,17 @@ import type { ActionResult } from "@/lib/errors";
 import { EmptyState } from "@/components/board/empty-state";
 
 function useAction() {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const run = (fn: () => Promise<ActionResult<unknown>>, ok: string, confirmMsg?: string) => {
     if (confirmMsg && !confirm(confirmMsg)) return;
     startTransition(async () => {
       const res = await fn();
-      if (!res.ok) toast.error(res.error);
-      else toast.success(ok); // actions revalidate: fresh UI comes back in the same response
+      if (!res.ok) {
+        toast.error(res.error);
+        // usually the page is out of date (idea edited or already reviewed, member changed): reload it
+        router.refresh();
+      } else toast.success(ok); // actions revalidate: fresh UI comes back in the same response
     });
   };
   return { pending, run };
@@ -118,6 +122,9 @@ export function Members({ users, viewerId, viewerIsAdmin }: { users: U[]; viewer
 
 type PendingIdea = { id: string; title: string; description: string | null; author: string | null };
 
+/** What the moderator is looking at: the review only applies if the idea still reads exactly like this. */
+const seenText = (i: { title: string; description: string | null }) => ({ title: i.title, description: i.description });
+
 /** Ideas waiting for validation, oldest first: approved ones enter the bank. */
 export function PendingIdeas({ ideas }: { ideas: PendingIdea[] }) {
   const { pending, run } = useAction();
@@ -132,10 +139,10 @@ export function PendingIdeas({ ideas }: { ideas: PendingIdea[] }) {
             <p className="text-xs text-muted-foreground">par {i.author ?? "compte supprimé"}</p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved"), "Idée ajoutée à la banque")}>
+            <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée ajoutée à la banque")}>
               Valider
             </Button>
-            <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "rejected"), "Idée refusée", `Refuser « ${i.title} » ?`)}>
+            <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "rejected", seenText(i)), "Idée refusée", `Refuser « ${i.title} » ?`)}>
               Refuser
             </Button>
           </div>
@@ -180,7 +187,7 @@ const ideaRow = cva("flex flex-col gap-2 rounded-lg border p-3", {
 type Idea = { id: string; title: string; description: string | null; author: string | null; used: boolean; rejected: boolean };
 type BankFilter = "available" | "used" | "rejected" | "all";
 
-export function IdeaBank({ ideas }: { ideas: Idea[] }) {
+export function IdeaBank({ ideas, availableCount }: { ideas: Idea[]; availableCount: number }) {
   const { pending, run } = useAction();
   const [editing, setEditing] = useState<string | null>(null);
   const [filter, setFilter] = useState<BankFilter>("available");
@@ -191,7 +198,7 @@ export function IdeaBank({ ideas }: { ideas: Idea[] }) {
     all: () => true,
   };
   const label: Record<BankFilter, string> = {
-    available: `Dispo (${ideas.filter(matches.available).length})`,
+    available: `Dispo (${availableCount})`,
     used: "Utilisées",
     rejected: "Refusées",
     all: "Toutes",
@@ -226,7 +233,7 @@ export function IdeaBank({ ideas }: { ideas: Idea[] }) {
                 {!i.used && (
                   <div className="flex flex-wrap gap-2">
                     {i.rejected && (
-                      <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved"), "Idée remise dans la banque")}>
+                      <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée remise dans la banque")}>
                         Remettre dans la banque
                       </Button>
                     )}

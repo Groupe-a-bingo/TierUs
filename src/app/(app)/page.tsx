@@ -50,7 +50,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
             <p className="font-display text-2xl font-extrabold">Pas de tier list en cours 😶</p>
             <p className="text-muted-foreground">
               {bank === 0
-                ? "La banque d'idées est vide : la prochaine idée proposée lance la tier list du jour."
+                ? "La banque d'idées est vide : la prochaine idée qui y entre lance la tier list du jour."
                 : `La prochaine tier list est tirée à ${DAILY_DRAW_HOUR} h.`}
             </p>
             <Link href="/ideas" className="mx-auto rounded-xl border-2 border-ink bg-primary px-5 py-3 font-display font-bold text-primary-foreground shadow-pop">

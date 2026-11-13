@@ -39,7 +39,8 @@ export default async function ModPage() {
       .where(where)
       .then((r) => r[0]?.n ?? 0);
 
-  const [pending, members, ideas, waiting, waitingCount, available, active, daily, logs, validation] = await Promise.all([
+  const WAITING_LIMIT = 200;
+  const [pending, members, ideas, waiting, available, active, daily, logs, validation] = await Promise.all([
     db.select(userCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
     db.select(userCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
     // the bank (approved + refused), newest first
@@ -57,8 +58,7 @@ export default async function ModPage() {
       .leftJoin(schema.user, eq(schema.user.id, schema.ideas.authorId))
       .where(eq(schema.ideas.status, "pending"))
       .orderBy(asc(schema.ideas.createdAt))
-      .limit(200),
-    countIdeas(eq(schema.ideas.status, "pending")),
+      .limit(WAITING_LIMIT),
     countIdeas(availableIdea()),
     getActiveRounds(now),
     // null before 08:00: nothing is due yet, so no manual draw button
@@ -73,6 +73,8 @@ export default async function ModPage() {
     getIdeaValidation(),
   ]);
 
+  // the exact count is only needed when the queue doesn't fit in the list
+  const waitingCount = waiting.length < WAITING_LIMIT ? waiting.length : await countIdeas(eq(schema.ideas.status, "pending"));
   const isAdmin = me.role === "admin";
 
   return (
@@ -84,7 +86,7 @@ export default async function ModPage() {
           <CardTitle>Tier lists en cours ({active.length})</CardTitle>
           <CardDescription>
             Tirage automatique chaque jour à {DAILY_DRAW_HOUR} h, pour {DEFAULT_TTL_HOURS} h. {available} idée(s) disponible(s) dans la banque.
-            {available === 0 && " ⚠️ Banque vide : la prochaine idée proposée lancera le tirage manquant."}
+            {available === 0 && " ⚠️ Banque vide : la prochaine idée qui entre dans la banque lancera le tirage manquant."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -147,6 +149,7 @@ export default async function ModPage() {
         </CardHeader>
         <CardContent>
           <IdeaBank
+            availableCount={available}
             ideas={ideas.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author, used: !!i.usedAt, rejected: i.status === "rejected" }))}
           />
         </CardContent>

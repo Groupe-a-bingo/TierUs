@@ -16,15 +16,20 @@ const row = cva("flex flex-col gap-2 rounded-lg border p-3", {
   variants: { played: { true: "border-board-edge opacity-50", false: "border-border" } },
 });
 
-/** What saving an edit does to the idea while validation is on. */
-function editNotice(status: IdeaStatus, needsReview: boolean) {
-  if (!needsReview) return undefined;
-  if (status === "approved") return "Une fois modifiée, ton idée repasse en validation : elle sort de la banque jusqu'à ce qu'un modo la valide à nouveau.";
-  if (status === "rejected") return "Une fois corrigée, ton idée sera relue par un modo.";
+/**
+ * What saving an edit does to the idea (same rules as the server's statusAfterEdit):
+ * a refused idea goes back to a moderator (or straight to the bank for a moderator's own idea);
+ * an approved one leaves the bank for review while validation is on.
+ */
+function editNotice(status: IdeaStatus, { validation, isModerator }: { validation: boolean; isModerator: boolean }) {
+  if (status === "rejected")
+    return isModerator ? "Une fois corrigée, ton idée retourne directement dans la banque." : "Une fois corrigée, ton idée sera relue par un modo.";
+  if (status === "approved" && validation && !isModerator)
+    return "Une fois modifiée, ton idée repasse en validation : elle sort de la banque jusqu'à ce qu'un modo la valide à nouveau.";
   return undefined;
 }
 
-export function MyIdeas({ ideas, needsReview = false }: { ideas: Idea[]; needsReview?: boolean }) {
+export function MyIdeas({ ideas, validation, isModerator }: { ideas: Idea[]; validation: boolean; isModerator: boolean }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -45,7 +50,7 @@ export function MyIdeas({ ideas, needsReview = false }: { ideas: Idea[]; needsRe
             <IdeaForm
               editId={i.id}
               initial={{ title: i.title, description: i.description ?? "" }}
-              notice={editNotice(i.status, needsReview)}
+              notice={editNotice(i.status, { validation, isModerator })}
               onDone={() => setEditing(null)}
             />
           ) : (
