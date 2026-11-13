@@ -7,6 +7,7 @@ La tier list quotidienne de la commu : chaque jour à 8 h (heure de Paris), une 
 - Les résultats d'une tier list ne sont visibles qu'après y avoir répondu, archivée ou non.
 - Compteur personnel : nombre de tier lists répondues avant leur archivage (une fois par tier list, jamais remis à zéro).
 - Si la banque est vide à 8 h, la prochaine idée proposée déclenche le tirage du jour manquant (sans doublon).
+- Validation des idées (optionnelle, activée par un admin dans `/mod`) : les idées des membres attendent qu'un modo les valide avant d'entrer dans la banque ; une idée refusée revient à son auteur : elle ne repasse devant un modo que s'il la corrige (même validation désactivée). Désactiver la validation fait entrer toutes les idées en attente dans la banque.
 - URL d'une tier list : `/r/<id>`. Les anciens liens `/r/AAAA-MM-JJ` redirigent vers la tier list quotidienne de ce jour.
 
 ## Démarrer en local

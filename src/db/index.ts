@@ -15,4 +15,6 @@ if (process.env.NODE_ENV !== "production") globalForDb.pgPool = pool;
 
 export const db = drizzle(pool, { schema });
 export type DB = typeof db;
+/** A transaction handle, as passed to db.transaction(async (tx) => …). */
+export type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 export { schema };

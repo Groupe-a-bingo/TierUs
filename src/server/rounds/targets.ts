@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
-import { db, schema } from "@/db";
-import type { Tx } from "./lock";
+import { db, schema, type Tx } from "@/db";
 
 const { rounds, roundTargets, submissions, placements } = schema;
 

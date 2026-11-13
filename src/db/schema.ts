@@ -27,6 +27,8 @@ export const userStatusEnum = pgEnum("user_status", ["pending", "active", "rejec
 export const tierEnum = pgEnum("tier", ["S", "A", "B", "C", "D", "F"]);
 /** daily = the automatic 08:00 draw (one per day) · extra = created by a moderator */
 export const roundKindEnum = pgEnum("round_kind", ["daily", "extra"]);
+/** pending = waiting for a moderator (idea validation on) · approved = in the bank · rejected = refused, back to its author */
+export const ideaStatusEnum = pgEnum("idea_status", ["pending", "approved", "rejected"]);
 
 /* ---------- Better Auth core tables (+ app fields on user) ---------- */
 
@@ -125,12 +127,14 @@ export const ideas = pgTable(
     title: text("title").notNull(),
     description: text("description"),
     authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
+    /** only approved ideas can be drawn */
+    status: ideaStatusEnum("status").notNull().default("approved"),
     createdAt: createdAt(),
     usedAt: timestamp("used_at", { withTimezone: true }),
   },
   (t) => [
     index("ideas_author_idx").on(t.authorId),
-    index("ideas_available_idx").on(t.usedAt),
+    index("ideas_available_idx").on(t.status, t.usedAt),
     check("ideas_title_len", sql`char_length(${t.title}) between 3 and 120`),
   ],
 );
@@ -250,6 +254,13 @@ export const reactions = pgTable(
   ],
 );
 
+/** Global app settings, one row per key (e.g. idea_validation → true). A missing key means its default. */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const auditLog = pgTable(
   "audit_log",
   {
@@ -266,3 +277,4 @@ export const auditLog = pgTable(
 
 export const TIERS = tierEnum.enumValues;
 export type Tier = (typeof TIERS)[number];
+export type IdeaStatus = (typeof ideaStatusEnum.enumValues)[number];

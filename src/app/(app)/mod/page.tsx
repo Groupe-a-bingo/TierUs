@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { asc, desc, eq, isNotNull, ne } from "drizzle-orm";
+import { asc, desc, eq, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { pageModerator } from "@/lib/permissions";
 import { db, schema } from "@/db";
 import { DAILY_DRAW_HOUR, DEFAULT_TTL_HOURS, MAX_TTL_HOURS, MIN_TTL_HOURS, dueDailyKey, formatRemaining } from "@/lib/dates";
 import { getActiveRounds, getDailyRound } from "@/server/rounds/queries";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreateExtraRound, DrawNow, IdeaBank, Members, PendingUsers } from "@/components/mod/mod-panels";
+import { getIdeaValidation } from "@/server/settings";
+import { availableIdea } from "@/server/ideas";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CreateExtraRound, DrawNow, IdeaBank, IdeaValidationToggle, Members, PendingIdeas, PendingUsers } from "@/components/mod/mod-panels";
 import { EmptyState } from "@/components/board/empty-state";
 
 const userCols = {
@@ -22,21 +24,42 @@ export default async function ModPage() {
   const now = new Date();
   const dueKey = dueDailyKey(now);
 
-  const [pending, members, ideas, active, daily, logs] = await Promise.all([
+  const ideaCols = {
+    id: schema.ideas.id,
+    title: schema.ideas.title,
+    description: schema.ideas.description,
+    usedAt: schema.ideas.usedAt,
+    status: schema.ideas.status,
+    author: schema.user.name,
+  };
+  const countIdeas = (where: SQL | undefined) =>
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.ideas)
+      .where(where)
+      .then((r) => r[0]?.n ?? 0);
+
+  const WAITING_LIMIT = 200;
+  const [pending, members, ideas, waiting, available, active, daily, logs, validation] = await Promise.all([
     db.select(userCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
     db.select(userCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
+    // the bank (approved + refused), newest first
     db
-      .select({
-        id: schema.ideas.id,
-        title: schema.ideas.title,
-        description: schema.ideas.description,
-        usedAt: schema.ideas.usedAt,
-        author: schema.user.name,
-      })
+      .select(ideaCols)
       .from(schema.ideas)
       .leftJoin(schema.user, eq(schema.user.id, schema.ideas.authorId))
+      .where(ne(schema.ideas.status, "pending"))
       .orderBy(desc(schema.ideas.createdAt))
       .limit(1000),
+    // the validation queue, oldest first like the sign-ups (its own query: never cut by the bank's limit)
+    db
+      .select(ideaCols)
+      .from(schema.ideas)
+      .leftJoin(schema.user, eq(schema.user.id, schema.ideas.authorId))
+      .where(eq(schema.ideas.status, "pending"))
+      .orderBy(asc(schema.ideas.createdAt))
+      .limit(WAITING_LIMIT),
+    countIdeas(availableIdea()),
     getActiveRounds(now),
     // null before 08:00: nothing is due yet, so no manual draw button
     dueKey ? getDailyRound(dueKey) : Promise.resolve(null),
@@ -47,9 +70,12 @@ export default async function ModPage() {
       .where(isNotNull(schema.auditLog.action))
       .orderBy(desc(schema.auditLog.createdAt))
       .limit(15),
+    getIdeaValidation(),
   ]);
 
-  const available = ideas.filter((i) => !i.usedAt).length;
+  // the exact count is only needed when the queue doesn't fit in the list
+  const waitingCount = waiting.length < WAITING_LIMIT ? waiting.length : await countIdeas(eq(schema.ideas.status, "pending"));
+  const isAdmin = me.role === "admin";
 
   return (
     <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
@@ -60,7 +86,7 @@ export default async function ModPage() {
           <CardTitle>Tier lists en cours ({active.length})</CardTitle>
           <CardDescription>
             Tirage automatique chaque jour à {DAILY_DRAW_HOUR} h, pour {DEFAULT_TTL_HOURS} h. {available} idée(s) disponible(s) dans la banque.
-            {available === 0 && " ⚠️ Banque vide : la prochaine idée proposée lancera le tirage manquant."}
+            {available === 0 && " ⚠️ Banque vide : la prochaine idée qui entre dans la banque lancera le tirage manquant."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -96,12 +122,36 @@ export default async function ModPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Idées à valider ({waitingCount})</CardTitle>
+          <CardDescription>
+            {validation
+              ? "Les idées des membres attendent ici qu'un modo les valide avant d'entrer dans la banque."
+              : "Validation désactivée : les idées proposées partent directement dans la banque."}
+          </CardDescription>
+          {isAdmin && (
+            <CardAction>
+              <IdeaValidationToggle enabled={validation} waiting={waitingCount} />
+            </CardAction>
+          )}
+        </CardHeader>
+        {(validation || waitingCount > 0) && (
+          <CardContent>
+            <PendingIdeas ideas={waiting.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author }))} />
+          </CardContent>
+        )}
+      </Card>
+
       <Card className="lg:row-span-3">
         <CardHeader>
           <CardTitle>Banque d&apos;idées</CardTitle>
         </CardHeader>
         <CardContent>
-          <IdeaBank ideas={ideas.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author, used: !!i.usedAt }))} />
+          <IdeaBank
+            availableCount={available}
+            ideas={ideas.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author, used: !!i.usedAt, rejected: i.status === "rejected" }))}
+          />
         </CardContent>
       </Card>
 
@@ -110,7 +160,7 @@ export default async function ModPage() {
           <CardTitle>Membres ({members.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <Members users={members} viewerId={me.id} viewerIsAdmin={me.role === "admin"} />
+          <Members users={members} viewerId={me.id} viewerIsAdmin={isAdmin} />
         </CardContent>
       </Card>
 

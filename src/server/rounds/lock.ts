@@ -1,7 +1,5 @@
 import { sql } from "drizzle-orm";
-import type { db } from "@/db";
-
-export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+import type { Tx } from "@/db";
 
 /**
  * Arbitrary constant key of the "tier list membership" advisory lock.

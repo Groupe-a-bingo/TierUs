@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { isNull, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { pageUser } from "@/lib/permissions";
 import { listBoard, membersById, type BoardPost } from "@/server/board";
+import { availableIdea } from "@/server/ideas";
 import { boardVersion } from "@/server/live";
 import { PinnedPost, PostCard } from "@/components/board/post-card";
 import { LiveRefresh } from "@/components/board/live-refresh";
@@ -23,7 +24,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
     db
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.ideas)
-      .where(isNull(schema.ideas.usedAt))
+      .where(availableIdea())
       .then((r) => r[0]?.n ?? 0),
   ]);
   const members = await membersById([...new Set([...active, ...archives].flatMap((p) => p.top3))]);
@@ -49,7 +50,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
             <p className="font-display text-2xl font-extrabold">Pas de tier list en cours 😶</p>
             <p className="text-muted-foreground">
               {bank === 0
-                ? "La banque d'idées est vide : la prochaine idée proposée lance la tier list du jour."
+                ? "La banque d'idées est vide : la prochaine idée qui y entre lance la tier list du jour."
                 : `La prochaine tier list est tirée à ${DAILY_DRAW_HOUR} h.`}
             </p>
             <Link href="/ideas" className="mx-auto rounded-xl border-2 border-ink bg-primary px-5 py-3 font-display font-bold text-primary-foreground shadow-pop">

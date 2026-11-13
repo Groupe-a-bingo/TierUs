@@ -7,15 +7,29 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IdeaForm } from "@/components/ideas/idea-form";
 import { deleteIdea } from "@/app/actions/ideas";
+import type { IdeaStatus } from "@/db/schema";
 
-type Idea = { id: string; title: string; description: string | null; played: boolean };
+type Idea = { id: string; title: string; description: string | null; played: boolean; status: IdeaStatus };
 
 // played ideas stay listed, greyed out and read-only
 const row = cva("flex flex-col gap-2 rounded-lg border p-3", {
   variants: { played: { true: "border-board-edge opacity-50", false: "border-border" } },
 });
 
-export function MyIdeas({ ideas }: { ideas: Idea[] }) {
+/**
+ * What saving an edit does to the idea (same rules as the server's statusAfterEdit):
+ * a refused idea goes back to a moderator (or straight to the bank for a moderator's own idea);
+ * an approved one leaves the bank for review while validation is on.
+ */
+function editNotice(status: IdeaStatus, { validation, isModerator }: { validation: boolean; isModerator: boolean }) {
+  if (status === "rejected")
+    return isModerator ? "Une fois corrigée, ton idée retourne directement dans la banque." : "Une fois corrigée, ton idée sera relue par un modo.";
+  if (status === "approved" && validation && !isModerator)
+    return "Une fois modifiée, ton idée repasse en validation : elle sort de la banque jusqu'à ce qu'un modo la valide à nouveau.";
+  return undefined;
+}
+
+export function MyIdeas({ ideas, validation, isModerator }: { ideas: Idea[]; validation: boolean; isModerator: boolean }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -33,7 +47,12 @@ export function MyIdeas({ ideas }: { ideas: Idea[] }) {
       {ideas.map((i) => (
         <li key={i.id} className={row({ played: i.played })}>
           {editing === i.id ? (
-            <IdeaForm editId={i.id} initial={{ title: i.title, description: i.description ?? "" }} onDone={() => setEditing(null)} />
+            <IdeaForm
+              editId={i.id}
+              initial={{ title: i.title, description: i.description ?? "" }}
+              notice={editNotice(i.status, { validation, isModerator })}
+              onDone={() => setEditing(null)}
+            />
           ) : (
             <>
               <div className="flex items-start justify-between gap-2">
@@ -41,7 +60,13 @@ export function MyIdeas({ ideas }: { ideas: Idea[] }) {
                   <p className="font-medium">{i.title}</p>
                   {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
                 </div>
-                {i.played && <Badge variant="outline">jouée</Badge>}
+                {i.played ? (
+                  <Badge variant="outline">jouée</Badge>
+                ) : i.status === "pending" ? (
+                  <Badge variant="outline">en attente</Badge>
+                ) : (
+                  i.status === "rejected" && <Badge variant="destructive">refusée</Badge>
+                )}
               </div>
               {!i.played && (
                 <div className="flex gap-2">

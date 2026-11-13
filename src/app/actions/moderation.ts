@@ -9,6 +9,8 @@ import { rateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
 import { badRequest, forbidden, notFound, runAction } from "@/lib/errors";
 import { setMemberStatus } from "@/server/members";
+import { setIdeaValidation } from "@/server/settings";
+import { catchUpDaily } from "@/server/rounds/catch-up";
 
 const { user } = schema;
 const userId = z.string().min(1).max(64);
@@ -47,5 +49,23 @@ export async function setUserRole(id: string, role: "member" | "moderator") {
     await db.update(user).set({ role }).where(eq(user.id, target.id));
     await audit(admin.id, "user.role", "user", target.id, { from: target.role, to: role });
     revalidatePath("/mod");
+  });
+}
+
+/** Admin switch: members' new ideas wait for a moderator before entering the bank. */
+export async function setIdeaValidationAction(enabled: boolean) {
+  return runAction(async () => {
+    const admin = await requireAdmin();
+    await rateLimit("modAction", admin.id);
+    if (typeof enabled !== "boolean") throw badRequest();
+    const res = await setIdeaValidation(enabled, admin.id);
+    revalidatePath("/mod");
+    revalidatePath("/ideas");
+    // released ideas may refill an empty bank (board counter, missing daily)
+    if (res.approved) {
+      revalidatePath("/", "layout");
+      await catchUpDaily(admin.id, "settings");
+    }
+    return res;
   });
 }

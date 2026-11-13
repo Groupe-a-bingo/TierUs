@@ -60,6 +60,7 @@ N'utilise pas `components/ui/avatar` (rond) pour un membre.
 - **Button** (`ui/button.tsx`) : `default` (jaune B + ombre), `secondary`, `outline` (bord plateau, sans ombre), `ghost`, `destructive` (rouge S), `link`. Tailles `xs` → `xl` et `icon*`.
 - **Card** : `rounded-2xl`, bord `board-edge`, `shadow-pop`.
 - **EmptyState** : le seul message « rien ici », centré, `text-muted-foreground`.
+- **DropdownMenu** (`ui/dropdown-menu.tsx`) : popup `bg-popover`, bord encre, `shadow-pop-sm`. Les actions secondaires d'une ligne (rôle, bannir…) passent par un bouton `⋯` (`ghost`, `icon-sm`, avec `aria-label`) plutôt que par une rangée de boutons au texte proche.
 - **Éléments passés / inactifs** : `opacity-50` à `opacity-60` + texte `text-muted-foreground`, jamais masqués.
 
 ## Mouvement

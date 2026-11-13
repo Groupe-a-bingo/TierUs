@@ -1,7 +1,5 @@
 import "server-only";
-import { db, schema } from "@/db";
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+import { db, schema, type Tx } from "@/db";
 
 export async function audit(
   actorId: string | null,
