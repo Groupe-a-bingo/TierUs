@@ -2,13 +2,14 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { db, schema } from "@/db";
 import { isModerator, requireActiveUser, requireModerator } from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 import { audit } from "@/lib/audit";
 import { badRequest, runAction } from "@/lib/errors";
 import { catchUpDaily } from "@/server/rounds/catch-up";
-import { editIdea, newIdeaStatus, removeIdea, reviewIdea } from "@/server/ideas";
+import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
+
+const reviewDecision = z.enum(["approved", "rejected"]);
 
 const ideaSchema = z.object({
   title: z.string().trim().min(3, "Titre trop court").max(120, "120 caractères max"),
@@ -21,13 +22,7 @@ export async function addIdea(input: { title: string; description?: string }) {
     await rateLimit("idea", u.id);
     const parsed = ideaSchema.safeParse(input);
     if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message);
-    const status = await newIdeaStatus({ id: u.id, isModerator: isModerator(u) });
-    await db.insert(schema.ideas).values({
-      title: parsed.data.title,
-      description: parsed.data.description || null,
-      authorId: u.id,
-      status,
-    });
+    const status = await createIdea({ id: u.id, isModerator: isModerator(u) }, { title: parsed.data.title, description: parsed.data.description || null });
     revalidatePath("/ideas");
     if (status === "pending") revalidatePath("/mod");
     else await catchUpDaily(u.id, "idea");
@@ -58,6 +53,11 @@ export async function updateIdea(id: string, input: { title: string; description
     const status = await editIdea(actor, ideaId.data, { title: parsed.data.title, description: parsed.data.description || null });
     await audit(actor.id, "idea.update", "idea", ideaId.data, { ...parsed.data, status });
     revalidateIdeas();
+    // a refused idea fixed while validation is off lands in the bank: maybe the missing daily
+    if (status === "approved") {
+      revalidatePath("/");
+      await catchUpDaily(actor.id, "idea");
+    }
     return { status };
   });
 }
@@ -79,10 +79,14 @@ export async function reviewIdeaAction(id: string, decision: "approved" | "rejec
     const mod = await requireModerator();
     await rateLimit("modAction", mod.id);
     const ideaId = z.string().uuid().safeParse(id);
-    if (!ideaId.success || !["approved", "rejected"].includes(decision)) throw badRequest();
-    const idea = await reviewIdea(ideaId.data, decision);
-    await audit(mod.id, decision === "approved" ? "idea.approve" : "idea.reject", "idea", ideaId.data, { title: idea.title });
+    const parsed = reviewDecision.safeParse(decision);
+    if (!ideaId.success || !parsed.success) throw badRequest();
+    const idea = await reviewIdea(ideaId.data, parsed.data);
+    await audit(mod.id, parsed.data === "approved" ? "idea.approve" : "idea.reject", "idea", ideaId.data, { title: idea.title });
     revalidateIdeas();
-    if (decision === "approved") await catchUpDaily(mod.id, "review");
+    if (parsed.data === "approved") {
+      revalidatePath("/");
+      await catchUpDaily(mod.id, "review");
+    }
   });
 }

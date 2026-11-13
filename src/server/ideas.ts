@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { db, schema, type Tx } from "@/db";
 import type { IdeaStatus } from "@/db/schema";
 import { badRequest, forbidden, notFound } from "@/lib/errors";
 import { getIdeaValidation } from "@/server/settings";
@@ -8,9 +8,25 @@ import { getIdeaValidation } from "@/server/settings";
 type Actor = { id: string; isModerator: boolean };
 export type IdeaInput = { title: string; description: string | null };
 
-/** Status of a new idea: members go through the moderators' queue while validation is on. */
-export async function newIdeaStatus(actor: Actor): Promise<IdeaStatus> {
-  return !actor.isModerator && (await getIdeaValidation()) ? "pending" : "approved";
+/** In the bank: approved and never played. The only definition of "drawable" (draws, re-rolls, bank counters). */
+export const availableIdea = () => and(isNull(schema.ideas.usedAt), eq(schema.ideas.status, "approved"));
+
+/**
+ * Status of a new (or member-edited) idea: members go through the moderators'
+ * queue while validation is on. Called inside the transaction that writes the
+ * idea, with the setting share-locked (see getIdeaValidation).
+ */
+async function newIdeaStatus(actor: Actor, tx: Tx): Promise<IdeaStatus> {
+  if (actor.isModerator) return "approved";
+  return (await getIdeaValidation(tx, { lock: true })) ? "pending" : "approved";
+}
+
+export async function createIdea(actor: Actor, input: IdeaInput): Promise<IdeaStatus> {
+  return db.transaction(async (tx) => {
+    const status = await newIdeaStatus(actor, tx);
+    await tx.insert(schema.ideas).values({ title: input.title, description: input.description, authorId: actor.id, status });
+    return status;
+  });
 }
 
 /**
@@ -41,15 +57,17 @@ const stillEditable = (actor: Actor, ideaId: string) =>
  */
 export async function editIdea(actor: Actor, ideaId: string, input: IdeaInput): Promise<IdeaStatus> {
   await editableIdea(actor, ideaId, "modifiée");
-  const status = actor.isModerator ? undefined : await newIdeaStatus(actor);
-  const res = await db
-    .update(schema.ideas)
-    .set({ title: input.title, description: input.description, ...(status && { status }) })
-    .where(stillEditable(actor, ideaId))
-    .returning({ status: schema.ideas.status });
-  // drawn between the check and the update
-  if (!res.length) throw badRequest("Cette idée a déjà été jouée, elle ne peut plus être modifiée");
-  return res[0].status;
+  return db.transaction(async (tx) => {
+    const status = actor.isModerator ? undefined : await newIdeaStatus(actor, tx);
+    const res = await tx
+      .update(schema.ideas)
+      .set({ title: input.title, description: input.description, ...(status && { status }) })
+      .where(stillEditable(actor, ideaId))
+      .returning({ status: schema.ideas.status });
+    // drawn between the check and the update
+    if (!res.length) throw badRequest("Cette idée a déjà été jouée, elle ne peut plus être modifiée");
+    return res[0].status;
+  });
 }
 
 /**

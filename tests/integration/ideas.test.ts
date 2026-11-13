@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { editIdea, newIdeaStatus, removeIdea, reviewIdea } from "@/server/ideas";
+import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
 import { getIdeaValidation, setIdeaValidation } from "@/server/settings";
 import { rerollRound } from "@/server/rounds/draw";
 import { drawActive, makeUser, resetDb } from "../support/factories";
@@ -61,7 +61,10 @@ describe("idea validation", () => {
   it("is off by default: every new idea goes straight to the bank", async () => {
     const a = await makeUser();
     expect(await getIdeaValidation()).toBe(false);
-    expect(await newIdeaStatus(as(a))).toBe("approved");
+    const status = await createIdea(as(a), { title: "Direct", description: null });
+    expect(status).toBe("approved");
+    const [idea] = await db.select().from(schema.ideas).where(eq(schema.ideas.title, "Direct"));
+    expect(idea).toMatchObject({ status: "approved", authorId: a.id });
   });
 
   it("when on, members' ideas wait for a moderator; moderators' ideas skip the queue", async () => {
@@ -70,8 +73,8 @@ describe("idea validation", () => {
     const mod = await makeUser({ role: "moderator" });
     await setIdeaValidation(true, admin.id);
     expect(await getIdeaValidation()).toBe(true);
-    expect(await newIdeaStatus(as(a))).toBe("pending");
-    expect(await newIdeaStatus(as(mod, true))).toBe("approved");
+    expect(await createIdea(as(a), { title: "De membre", description: null })).toBe("pending");
+    expect(await createIdea(as(mod, true), { title: "De modo", description: null })).toBe("approved");
   });
 
   it("a pending or refused idea is never drawn, an approved one is", async () => {
@@ -149,5 +152,40 @@ describe("idea validation", () => {
     expect((await get(r.id)).status).toBe("rejected");
     const logs = await db.select().from(schema.auditLog).where(eq(schema.auditLog.action, "settings.idea_validation"));
     expect(logs).toHaveLength(2);
+  });
+});
+
+describe("idea validation setting", () => {
+  it("refuses a no-op toggle (an admin's page out of date)", async () => {
+    const admin = await makeUser({ role: "admin" });
+    await expect(setIdeaValidation(false, admin.id)).rejects.toMatchObject({ status: 400 });
+    await setIdeaValidation(true, admin.id);
+    await expect(setIdeaValidation(true, admin.id)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("an idea written while validation is being turned off can't stay pending", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const a = await makeUser();
+    await setIdeaValidation(true, admin.id);
+
+    // a member's write that read "validation on" (share lock held) before the admin's switch
+    let readDone!: () => void;
+    const read = new Promise<void>((r) => (readDone = r));
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    const write = db.transaction(async (tx) => {
+      expect(await getIdeaValidation(tx, { lock: true })).toBe(true);
+      readDone();
+      await hold;
+      await tx.insert(schema.ideas).values({ title: "Pendant la bascule", authorId: a.id, status: "pending" });
+    });
+    await read;
+    const off = setIdeaValidation(false, admin.id); // waits for the member's transaction
+    await new Promise((r) => setTimeout(r, 100));
+    release();
+    await write;
+    expect(await off).toEqual({ approved: 1 });
+    const [idea] = await db.select().from(schema.ideas).where(eq(schema.ideas.title, "Pendant la bascule"));
+    expect(idea.status).toBe("approved");
   });
 });

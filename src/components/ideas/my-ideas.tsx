@@ -16,7 +16,15 @@ const row = cva("flex flex-col gap-2 rounded-lg border p-3", {
   variants: { played: { true: "border-board-edge opacity-50", false: "border-border" } },
 });
 
-export function MyIdeas({ ideas }: { ideas: Idea[] }) {
+/** What saving an edit does to the idea while validation is on. */
+function editNotice(status: IdeaStatus, needsReview: boolean) {
+  if (!needsReview) return undefined;
+  if (status === "approved") return "Une fois modifiée, ton idée repasse en validation : elle sort de la banque jusqu'à ce qu'un modo la valide à nouveau.";
+  if (status === "rejected") return "Une fois corrigée, ton idée sera relue par un modo.";
+  return undefined;
+}
+
+export function MyIdeas({ ideas, needsReview = false }: { ideas: Idea[]; needsReview?: boolean }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -34,7 +42,12 @@ export function MyIdeas({ ideas }: { ideas: Idea[] }) {
       {ideas.map((i) => (
         <li key={i.id} className={row({ played: i.played })}>
           {editing === i.id ? (
-            <IdeaForm editId={i.id} initial={{ title: i.title, description: i.description ?? "" }} onDone={() => setEditing(null)} />
+            <IdeaForm
+              editId={i.id}
+              initial={{ title: i.title, description: i.description ?? "" }}
+              notice={editNotice(i.status, needsReview)}
+              onDone={() => setEditing(null)}
+            />
           ) : (
             <>
               <div className="flex items-start justify-between gap-2">

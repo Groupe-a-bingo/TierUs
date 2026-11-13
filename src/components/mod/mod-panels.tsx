@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cva } from "class-variance-authority";
 import { Ban, MoreHorizontal, ShieldMinus, ShieldPlus, Undo2 } from "lucide-react";
@@ -144,20 +145,28 @@ export function PendingIdeas({ ideas }: { ideas: PendingIdea[] }) {
   );
 }
 
-/** Admin switch for idea validation. Turning it off releases the waiting ideas into the bank. */
+/**
+ * Admin switch for idea validation. Turning it off releases the waiting ideas into the bank.
+ * The server refuses a no-op (page out of date): we then reload the real state.
+ */
 export function IdeaValidationToggle({ enabled, waiting }: { enabled: boolean; waiting: number }) {
-  const { pending, run } = useAction();
-  const confirmOff = waiting ? `Désactiver la validation ? ${waiting} idée(s) en attente partiront directement dans la banque.` : undefined;
-  return (
-    <Button
-      size="sm"
-      variant={enabled ? "default" : "outline"}
-      aria-pressed={enabled}
-      disabled={pending}
-      onClick={() =>
-        run(() => setIdeaValidationAction(!enabled), enabled ? "Validation désactivée" : "Validation activée", enabled ? confirmOff : undefined)
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const toggle = () => {
+    if (enabled && waiting && !confirm(`Désactiver la validation ? Les idées en attente (${waiting}) partiront directement dans la banque.`)) return;
+    startTransition(async () => {
+      const res = await setIdeaValidationAction(!enabled);
+      if (!res.ok) {
+        toast.error(res.error);
+        router.refresh();
+        return;
       }
-    >
+      const released = res.data?.approved ?? 0;
+      toast.success(enabled ? `Validation désactivée${released ? ` · ${released} idée(s) entrée(s) dans la banque` : ""}` : "Validation activée");
+    });
+  };
+  return (
+    <Button size="sm" variant={enabled ? "default" : "outline"} aria-pressed={enabled} disabled={pending} onClick={toggle}>
       {enabled ? "Validation activée" : "Validation désactivée"}
     </Button>
   );

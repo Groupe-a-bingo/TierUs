@@ -16,7 +16,7 @@ export async function catchUpDaily(actorId: string, trigger: "idea" | "review" |
       revalidatePath("/", "layout");
     }
   } catch (err) {
-    // the idea is saved either way; the worker's catch-up tick will retry
-    console.error("[draw] catch-up after new idea failed", err);
+    // the change is saved either way; the worker's catch-up tick will retry
+    console.error(`[draw] catch-up failed (trigger: ${trigger})`, err);
   }
 }

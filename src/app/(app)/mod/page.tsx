@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { asc, desc, eq, isNotNull, ne } from "drizzle-orm";
+import { asc, desc, eq, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { pageModerator } from "@/lib/permissions";
 import { db, schema } from "@/db";
 import { DAILY_DRAW_HOUR, DEFAULT_TTL_HOURS, MAX_TTL_HOURS, MIN_TTL_HOURS, dueDailyKey, formatRemaining } from "@/lib/dates";
 import { getActiveRounds, getDailyRound } from "@/server/rounds/queries";
 import { getIdeaValidation } from "@/server/settings";
+import { availableIdea } from "@/server/ideas";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateExtraRound, DrawNow, IdeaBank, IdeaValidationToggle, Members, PendingIdeas, PendingUsers } from "@/components/mod/mod-panels";
 import { EmptyState } from "@/components/board/empty-state";
@@ -23,22 +24,42 @@ export default async function ModPage() {
   const now = new Date();
   const dueKey = dueDailyKey(now);
 
-  const [pending, members, ideas, active, daily, logs, validation] = await Promise.all([
+  const ideaCols = {
+    id: schema.ideas.id,
+    title: schema.ideas.title,
+    description: schema.ideas.description,
+    usedAt: schema.ideas.usedAt,
+    status: schema.ideas.status,
+    author: schema.user.name,
+  };
+  const countIdeas = (where: SQL | undefined) =>
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.ideas)
+      .where(where)
+      .then((r) => r[0]?.n ?? 0);
+
+  const [pending, members, ideas, waiting, waitingCount, available, active, daily, logs, validation] = await Promise.all([
     db.select(userCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
     db.select(userCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
+    // the bank (approved + refused), newest first
     db
-      .select({
-        id: schema.ideas.id,
-        title: schema.ideas.title,
-        description: schema.ideas.description,
-        usedAt: schema.ideas.usedAt,
-        status: schema.ideas.status,
-        author: schema.user.name,
-      })
+      .select(ideaCols)
       .from(schema.ideas)
       .leftJoin(schema.user, eq(schema.user.id, schema.ideas.authorId))
+      .where(ne(schema.ideas.status, "pending"))
       .orderBy(desc(schema.ideas.createdAt))
       .limit(1000),
+    // the validation queue, oldest first like the sign-ups (its own query: never cut by the bank's limit)
+    db
+      .select(ideaCols)
+      .from(schema.ideas)
+      .leftJoin(schema.user, eq(schema.user.id, schema.ideas.authorId))
+      .where(eq(schema.ideas.status, "pending"))
+      .orderBy(asc(schema.ideas.createdAt))
+      .limit(200),
+    countIdeas(eq(schema.ideas.status, "pending")),
+    countIdeas(availableIdea()),
     getActiveRounds(now),
     // null before 08:00: nothing is due yet, so no manual draw button
     dueKey ? getDailyRound(dueKey) : Promise.resolve(null),
@@ -52,9 +73,6 @@ export default async function ModPage() {
     getIdeaValidation(),
   ]);
 
-  const available = ideas.filter((i) => !i.usedAt && i.status === "approved").length;
-  // oldest first, like the sign-ups queue
-  const waiting = ideas.filter((i) => i.status === "pending").reverse();
   const isAdmin = me.role === "admin";
 
   return (
@@ -104,7 +122,7 @@ export default async function ModPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Idées à valider ({waiting.length})</CardTitle>
+          <CardTitle>Idées à valider ({waitingCount})</CardTitle>
           <CardDescription>
             {validation
               ? "Les idées des membres attendent ici qu'un modo les valide avant d'entrer dans la banque."
@@ -112,11 +130,11 @@ export default async function ModPage() {
           </CardDescription>
           {isAdmin && (
             <CardAction>
-              <IdeaValidationToggle enabled={validation} waiting={waiting.length} />
+              <IdeaValidationToggle enabled={validation} waiting={waitingCount} />
             </CardAction>
           )}
         </CardHeader>
-        {(validation || waiting.length > 0) && (
+        {(validation || waitingCount > 0) && (
           <CardContent>
             <PendingIdeas ideas={waiting.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author }))} />
           </CardContent>
@@ -129,9 +147,7 @@ export default async function ModPage() {
         </CardHeader>
         <CardContent>
           <IdeaBank
-            ideas={ideas
-              .filter((i) => i.status !== "pending")
-              .map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author, used: !!i.usedAt, rejected: i.status === "rejected" }))}
+            ideas={ideas.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author, used: !!i.usedAt, rejected: i.status === "rejected" }))}
           />
         </CardContent>
       </Card>

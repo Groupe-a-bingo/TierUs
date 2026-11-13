@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,9 +15,11 @@ type Props = {
   onDone?: () => void;
   /** idea validation is on for this member: new ideas wait for a moderator */
   needsReview?: boolean;
+  /** shown above the submit button, e.g. "this edit sends the idea back for review" */
+  notice?: string;
 };
 
-export function IdeaForm({ editId, initial, onDone, needsReview = false }: Props) {
+export function IdeaForm({ editId, initial, onDone, needsReview = false, notice }: Props) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [pending, startTransition] = useTransition();
@@ -59,6 +62,12 @@ export function IdeaForm({ editId, initial, onDone, needsReview = false }: Props
         <Label htmlFor={`desc-${editId ?? "new"}`}>Précisions (optionnel)</Label>
         <Textarea id={`desc-${editId ?? "new"}`} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} rows={2} />
       </div>
+      {notice && (
+        <p className="flex items-start gap-2 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {notice}
+        </p>
+      )}
       <Button type="submit" disabled={pending || title.trim().length < 3}>
         {editId ? "Enregistrer" : needsReview ? "Proposer l'idée" : "Ajouter à la banque"}
       </Button>
