@@ -6,7 +6,7 @@ import { drawExtra } from "@/server/rounds/draw";
 /** Wipe every app table (integration DB only, see integration-setup.ts). */
 export async function resetDb() {
   await db.execute(sql`
-    truncate table reactions, comments, placements, submissions, round_targets, rounds, ideas,
+    truncate table reactions, comments, placements, submissions, round_targets, rounds, ideas, app_settings,
       audit_log, files, session, account, verification, rate_limit, app_rate_limits, "user"
     restart identity cascade
   `);

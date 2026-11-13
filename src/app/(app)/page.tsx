@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { pageUser } from "@/lib/permissions";
 import { listBoard, membersById, type BoardPost } from "@/server/board";
@@ -23,7 +23,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
     db
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.ideas)
-      .where(isNull(schema.ideas.usedAt))
+      .where(and(isNull(schema.ideas.usedAt), eq(schema.ideas.status, "approved")))
       .then((r) => r[0]?.n ?? 0),
   ]);
   const members = await membersById([...new Set([...active, ...archives].flatMap((p) => p.top3))]);

@@ -15,7 +15,7 @@ export type DrawResult =
 type NewRound = { kind: "daily" | "extra"; date: string; now: Date; ttlHours: number };
 
 /**
- * Create a tier list: pick a random never-used idea (no duplicates ever),
+ * Create a tier list: pick a random never-used approved idea (no duplicates ever),
  * mark it used, and snapshot the active members as targets.
  *
  * Everything happens in one transaction that first takes the membership
@@ -40,7 +40,7 @@ async function createRound({ kind, date, now, ttlHours }: NewRound): Promise<Dra
 
     const { rows } = await tx.execute<{ id: string }>(sql`
       select id from ${ideas}
-      where used_at is null
+      where used_at is null and status = 'approved'
       order by random()
       limit 1
       for update skip locked
@@ -101,7 +101,7 @@ export async function rerollRound(roundId: string, now = new Date()): Promise<{ 
 
     const { rows } = await tx.execute<{ id: string }>(sql`
       select id from ${ideas}
-      where used_at is null and id <> ${round.ideaId}
+      where used_at is null and status = 'approved' and id <> ${round.ideaId}
       order by random()
       limit 1
       for update skip locked

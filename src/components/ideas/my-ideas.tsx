@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IdeaForm } from "@/components/ideas/idea-form";
 import { deleteIdea } from "@/app/actions/ideas";
+import type { IdeaStatus } from "@/db/schema";
 
-type Idea = { id: string; title: string; description: string | null; played: boolean };
+type Idea = { id: string; title: string; description: string | null; played: boolean; status: IdeaStatus };
 
 // played ideas stay listed, greyed out and read-only
 const row = cva("flex flex-col gap-2 rounded-lg border p-3", {
@@ -41,7 +42,13 @@ export function MyIdeas({ ideas }: { ideas: Idea[] }) {
                   <p className="font-medium">{i.title}</p>
                   {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
                 </div>
-                {i.played && <Badge variant="outline">jouée</Badge>}
+                {i.played ? (
+                  <Badge variant="outline">jouée</Badge>
+                ) : i.status === "pending" ? (
+                  <Badge variant="outline">en attente</Badge>
+                ) : (
+                  i.status === "rejected" && <Badge variant="destructive">refusée</Badge>
+                )}
               </div>
               {!i.played && (
                 <div className="flex gap-2">

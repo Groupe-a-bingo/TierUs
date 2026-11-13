@@ -8,7 +8,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { addIdea, updateIdea } from "@/app/actions/ideas";
 
-export function IdeaForm({ editId, initial, onDone }: { editId?: string; initial?: { title: string; description: string }; onDone?: () => void }) {
+type Props = {
+  editId?: string;
+  initial?: { title: string; description: string };
+  onDone?: () => void;
+  /** idea validation is on for this member: new ideas wait for a moderator */
+  needsReview?: boolean;
+};
+
+export function IdeaForm({ editId, initial, onDone, needsReview = false }: Props) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [pending, startTransition] = useTransition();
@@ -24,7 +32,9 @@ export function IdeaForm({ editId, initial, onDone }: { editId?: string; initial
             toast.error(res.error);
             return;
           }
-          toast.success(editId ? "Idée modifiée" : "Idée ajoutée à la banque 🎲");
+          const waiting = res.data?.status === "pending";
+          if (editId) toast.success(waiting ? "Idée modifiée · en attente de validation" : "Idée modifiée");
+          else toast.success(waiting ? "Idée envoyée aux modos ✋" : "Idée ajoutée à la banque 🎲");
           if (!editId) {
             setTitle("");
             setDescription("");
@@ -50,7 +60,7 @@ export function IdeaForm({ editId, initial, onDone }: { editId?: string; initial
         <Textarea id={`desc-${editId ?? "new"}`} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} rows={2} />
       </div>
       <Button type="submit" disabled={pending || title.trim().length < 3}>
-        {editId ? "Enregistrer" : "Ajouter à la banque"}
+        {editId ? "Enregistrer" : needsReview ? "Proposer l'idée" : "Ajouter à la banque"}
       </Button>
     </form>
   );

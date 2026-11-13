@@ -1,10 +1,17 @@
 import "server-only";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
+import type { IdeaStatus } from "@/db/schema";
 import { badRequest, forbidden, notFound } from "@/lib/errors";
+import { getIdeaValidation } from "@/server/settings";
 
 type Actor = { id: string; isModerator: boolean };
 export type IdeaInput = { title: string; description: string | null };
+
+/** Status of a new idea: members go through the moderators' queue while validation is on. */
+export async function newIdeaStatus(actor: Actor): Promise<IdeaStatus> {
+  return !actor.isModerator && (await getIdeaValidation()) ? "pending" : "approved";
+}
 
 /**
  * Who may change an idea: its author or a moderator, and only while it has
@@ -27,15 +34,39 @@ async function editableIdea(actor: Actor, ideaId: string, verb: "modifiée" | "s
 const stillEditable = (actor: Actor, ideaId: string) =>
   and(eq(schema.ideas.id, ideaId), isNull(schema.ideas.usedAt), actor.isModerator ? undefined : eq(schema.ideas.authorId, actor.id));
 
-export async function editIdea(actor: Actor, ideaId: string, input: IdeaInput) {
+/**
+ * A member's edit goes back through validation (otherwise editing an approved
+ * idea would bypass it); a refused idea, once corrected, is reviewed again.
+ * With validation off it lands straight in the bank. A moderator's edit keeps the status.
+ */
+export async function editIdea(actor: Actor, ideaId: string, input: IdeaInput): Promise<IdeaStatus> {
   await editableIdea(actor, ideaId, "modifiée");
+  const status = actor.isModerator ? undefined : await newIdeaStatus(actor);
   const res = await db
     .update(schema.ideas)
-    .set({ title: input.title, description: input.description })
+    .set({ title: input.title, description: input.description, ...(status && { status }) })
     .where(stillEditable(actor, ideaId))
-    .returning({ id: schema.ideas.id });
+    .returning({ status: schema.ideas.status });
   // drawn between the check and the update
   if (!res.length) throw badRequest("Cette idée a déjà été jouée, elle ne peut plus être modifiée");
+  return res[0].status;
+}
+
+/**
+ * Moderator decision on an idea waiting for validation. A refused idea can
+ * still be put back in the bank later (moderator changing their mind).
+ */
+export async function reviewIdea(ideaId: string, decision: "approved" | "rejected") {
+  const from: IdeaStatus[] = decision === "approved" ? ["pending", "rejected"] : ["pending"];
+  const res = await db
+    .update(schema.ideas)
+    .set({ status: decision })
+    .where(and(eq(schema.ideas.id, ideaId), inArray(schema.ideas.status, from), isNull(schema.ideas.usedAt)))
+    .returning({ title: schema.ideas.title });
+  if (res.length) return res[0];
+  const [idea] = await db.select({ id: schema.ideas.id }).from(schema.ideas).where(eq(schema.ideas.id, ideaId)).limit(1);
+  if (!idea) throw notFound("Idée introuvable");
+  throw badRequest("Cette idée a déjà été traitée");
 }
 
 export async function removeIdea(actor: Actor, ideaId: string) {

@@ -3,12 +3,14 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { cva } from "class-variance-authority";
+import { Ban, MoreHorizontal, ShieldMinus, ShieldPlus, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { IdeaForm } from "@/components/ideas/idea-form";
-import { setUserRole, setUserStatus } from "@/app/actions/moderation";
-import { deleteIdea } from "@/app/actions/ideas";
+import { setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
+import { deleteIdea, reviewIdeaAction } from "@/app/actions/ideas";
 import { createExtraRoundAction, drawNowAction } from "@/app/actions/rounds";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,69 +56,151 @@ export function PendingUsers({ users }: { users: U[] }) {
   );
 }
 
+const roleLabel: Record<string, string> = { moderator: "modo", admin: "admin" };
+
+/** Secondary actions sit behind a "⋯" menu: the row only shows who the member is. */
 export function Members({ users, viewerId, viewerIsAdmin }: { users: U[]; viewerId: string; viewerIsAdmin: boolean }) {
   const { pending, run } = useAction();
   return (
     <ul className="flex flex-col gap-3">
-      {users.map((u) => (
-        <li key={u.id} className="flex items-center gap-3">
-          <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" />
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 truncate font-medium">
-              {u.name}
-              {u.role !== "member" && <Badge variant="secondary">{u.role}</Badge>}
-              {u.status === "rejected" && <Badge variant="destructive">banni</Badge>}
-            </p>
+      {users.map((u) => {
+        const canEditRole = viewerIsAdmin && u.status === "active";
+        return (
+          <li key={u.id} className="flex items-center gap-3">
+            <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-2 truncate font-medium">
+                {u.name}
+                {u.role !== "member" && <Badge variant="secondary">{roleLabel[u.role] ?? u.role}</Badge>}
+                {u.status === "rejected" && <Badge variant="destructive">banni</Badge>}
+              </p>
+            </div>
+            {u.id !== viewerId && u.role !== "admin" && (
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={pending} aria-label={`Actions pour ${u.name}`} />}>
+                  <MoreHorizontal />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {canEditRole &&
+                    (u.role === "moderator" ? (
+                      <DropdownMenuItem onClick={() => run(() => setUserRole(u.id, "member"), `${u.name} n'est plus modo`)}>
+                        <ShieldMinus />
+                        Retirer le rôle de modo
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem onClick={() => run(() => setUserRole(u.id, "moderator"), `${u.name} est modo`)}>
+                        <ShieldPlus />
+                        Nommer modérateur
+                      </DropdownMenuItem>
+                    ))}
+                  {canEditRole && <DropdownMenuSeparator />}
+                  {u.status === "active" ? (
+                    <DropdownMenuItem variant="destructive" onClick={() => run(() => setUserStatus(u.id, "rejected"), "Membre banni", `Bannir ${u.name} ? Ses sessions seront fermées.`)}>
+                      <Ban />
+                      Bannir
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onClick={() => run(() => setUserStatus(u.id, "active"), "Réintégré")}>
+                      <Undo2 />
+                      Réintégrer
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+type PendingIdea = { id: string; title: string; description: string | null; author: string | null };
+
+/** Ideas waiting for validation, oldest first: approved ones enter the bank. */
+export function PendingIdeas({ ideas }: { ideas: PendingIdea[] }) {
+  const { pending, run } = useAction();
+  if (!ideas.length) return <EmptyState>Aucune idée à valider.</EmptyState>;
+  return (
+    <ul className="flex flex-col gap-2">
+      {ideas.map((i) => (
+        <li key={i.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <div className="min-w-0">
+            <p className="font-medium">{i.title}</p>
+            {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
+            <p className="text-xs text-muted-foreground">par {i.author ?? "compte supprimé"}</p>
           </div>
-          {u.id !== viewerId && u.role !== "admin" && (
-            <>
-              {viewerIsAdmin && u.status === "active" && (
-                <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => setUserRole(u.id, u.role === "moderator" ? "member" : "moderator"), "Rôle mis à jour")}>
-                  {u.role === "moderator" ? "Retirer modo" : "Passer modo"}
-                </Button>
-              )}
-              {u.status === "active" ? (
-                <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "rejected"), "Membre banni", `Bannir ${u.name} ? Ses sessions seront fermées.`)}>
-                  Bannir
-                </Button>
-              ) : (
-                <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "active"), "Réintégré")}>
-                  Réintégrer
-                </Button>
-              )}
-            </>
-          )}
+          <div className="flex gap-2">
+            <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved"), "Idée ajoutée à la banque")}>
+              Valider
+            </Button>
+            <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "rejected"), "Idée refusée", `Refuser « ${i.title} » ?`)}>
+              Refuser
+            </Button>
+          </div>
         </li>
       ))}
     </ul>
   );
 }
 
-// played ideas stay listed, greyed out and read-only
+/** Admin switch for idea validation. Turning it off releases the waiting ideas into the bank. */
+export function IdeaValidationToggle({ enabled, waiting }: { enabled: boolean; waiting: number }) {
+  const { pending, run } = useAction();
+  const confirmOff = waiting ? `Désactiver la validation ? ${waiting} idée(s) en attente partiront directement dans la banque.` : undefined;
+  return (
+    <Button
+      size="sm"
+      variant={enabled ? "default" : "outline"}
+      aria-pressed={enabled}
+      disabled={pending}
+      onClick={() =>
+        run(() => setIdeaValidationAction(!enabled), enabled ? "Validation désactivée" : "Validation activée", enabled ? confirmOff : undefined)
+      }
+    >
+      {enabled ? "Validation activée" : "Validation désactivée"}
+    </Button>
+  );
+}
+
+// played and refused ideas stay listed, greyed out (played ones are read-only)
 const ideaRow = cva("flex flex-col gap-2 rounded-lg border p-3", {
   variants: { used: { true: "border-board-edge opacity-50", false: "border-border" } },
 });
 
-type Idea = { id: string; title: string; description: string | null; author: string | null; used: boolean };
+type Idea = { id: string; title: string; description: string | null; author: string | null; used: boolean; rejected: boolean };
+type BankFilter = "available" | "used" | "rejected" | "all";
 
 export function IdeaBank({ ideas }: { ideas: Idea[] }) {
   const { pending, run } = useAction();
   const [editing, setEditing] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"available" | "used" | "all">("available");
-  const shown = ideas.filter((i) => (filter === "all" ? true : filter === "used" ? i.used : !i.used));
+  const [filter, setFilter] = useState<BankFilter>("available");
+  const matches: Record<BankFilter, (i: Idea) => boolean> = {
+    available: (i) => !i.used && !i.rejected,
+    used: (i) => i.used,
+    rejected: (i) => i.rejected,
+    all: () => true,
+  };
+  const label: Record<BankFilter, string> = {
+    available: `Dispo (${ideas.filter(matches.available).length})`,
+    used: "Utilisées",
+    rejected: "Refusées",
+    all: "Toutes",
+  };
+  const shown = ideas.filter(matches[filter]);
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-2">
-        {(["available", "used", "all"] as const).map((f) => (
+      <div className="flex flex-wrap gap-2">
+        {(["available", "used", "rejected", "all"] as const).map((f) => (
           <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} onClick={() => setFilter(f)}>
-            {f === "available" ? `Dispo (${ideas.filter((i) => !i.used).length})` : f === "used" ? "Utilisées" : "Toutes"}
+            {label[f]}
           </Button>
         ))}
       </div>
       {shown.length === 0 && <EmptyState>Aucune idée ici.</EmptyState>}
       <ul className="flex flex-col gap-2">
         {shown.map((i) => (
-          <li key={i.id} className={ideaRow({ used: i.used })}>
+          <li key={i.id} className={ideaRow({ used: i.used || i.rejected })}>
             {editing === i.id ? (
               <IdeaForm editId={i.id} initial={{ title: i.title, description: i.description ?? "" }} onDone={() => setEditing(null)} />
             ) : (
@@ -128,9 +212,15 @@ export function IdeaBank({ ideas }: { ideas: Idea[] }) {
                     <p className="text-xs text-muted-foreground">par {i.author ?? "compte supprimé"}</p>
                   </div>
                   {i.used && <Badge variant="outline">utilisée</Badge>}
+                  {i.rejected && <Badge variant="destructive">refusée</Badge>}
                 </div>
                 {!i.used && (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {i.rejected && (
+                      <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved"), "Idée remise dans la banque")}>
+                        Remettre dans la banque
+                      </Button>
+                    )}
                     <Button size="sm" variant="outline" onClick={() => setEditing(i.id)}>
                       Modifier
                     </Button>

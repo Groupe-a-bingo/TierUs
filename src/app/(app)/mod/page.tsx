@@ -4,8 +4,9 @@ import { pageModerator } from "@/lib/permissions";
 import { db, schema } from "@/db";
 import { DAILY_DRAW_HOUR, DEFAULT_TTL_HOURS, MAX_TTL_HOURS, MIN_TTL_HOURS, dueDailyKey, formatRemaining } from "@/lib/dates";
 import { getActiveRounds, getDailyRound } from "@/server/rounds/queries";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreateExtraRound, DrawNow, IdeaBank, Members, PendingUsers } from "@/components/mod/mod-panels";
+import { getIdeaValidation } from "@/server/settings";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CreateExtraRound, DrawNow, IdeaBank, IdeaValidationToggle, Members, PendingIdeas, PendingUsers } from "@/components/mod/mod-panels";
 import { EmptyState } from "@/components/board/empty-state";
 
 const userCols = {
@@ -22,7 +23,7 @@ export default async function ModPage() {
   const now = new Date();
   const dueKey = dueDailyKey(now);
 
-  const [pending, members, ideas, active, daily, logs] = await Promise.all([
+  const [pending, members, ideas, active, daily, logs, validation] = await Promise.all([
     db.select(userCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
     db.select(userCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
     db
@@ -31,6 +32,7 @@ export default async function ModPage() {
         title: schema.ideas.title,
         description: schema.ideas.description,
         usedAt: schema.ideas.usedAt,
+        status: schema.ideas.status,
         author: schema.user.name,
       })
       .from(schema.ideas)
@@ -47,9 +49,13 @@ export default async function ModPage() {
       .where(isNotNull(schema.auditLog.action))
       .orderBy(desc(schema.auditLog.createdAt))
       .limit(15),
+    getIdeaValidation(),
   ]);
 
-  const available = ideas.filter((i) => !i.usedAt).length;
+  const available = ideas.filter((i) => !i.usedAt && i.status === "approved").length;
+  // oldest first, like the sign-ups queue
+  const waiting = ideas.filter((i) => i.status === "pending").reverse();
+  const isAdmin = me.role === "admin";
 
   return (
     <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
@@ -96,12 +102,37 @@ export default async function ModPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Idées à valider ({waiting.length})</CardTitle>
+          <CardDescription>
+            {validation
+              ? "Les idées des membres attendent ici qu'un modo les valide avant d'entrer dans la banque."
+              : "Validation désactivée : les idées proposées partent directement dans la banque."}
+          </CardDescription>
+          {isAdmin && (
+            <CardAction>
+              <IdeaValidationToggle enabled={validation} waiting={waiting.length} />
+            </CardAction>
+          )}
+        </CardHeader>
+        {(validation || waiting.length > 0) && (
+          <CardContent>
+            <PendingIdeas ideas={waiting.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author }))} />
+          </CardContent>
+        )}
+      </Card>
+
       <Card className="lg:row-span-3">
         <CardHeader>
           <CardTitle>Banque d&apos;idées</CardTitle>
         </CardHeader>
         <CardContent>
-          <IdeaBank ideas={ideas.map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author, used: !!i.usedAt }))} />
+          <IdeaBank
+            ideas={ideas
+              .filter((i) => i.status !== "pending")
+              .map((i) => ({ id: i.id, title: i.title, description: i.description, author: i.author, used: !!i.usedAt, rejected: i.status === "rejected" }))}
+          />
         </CardContent>
       </Card>
 
@@ -110,7 +141,7 @@ export default async function ModPage() {
           <CardTitle>Membres ({members.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <Members users={members} viewerId={me.id} viewerIsAdmin={me.role === "admin"} />
+          <Members users={members} viewerId={me.id} viewerIsAdmin={isAdmin} />
         </CardContent>
       </Card>
 
