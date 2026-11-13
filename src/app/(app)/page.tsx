@@ -1,37 +1,40 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { sql } from "drizzle-orm";
-import { db, schema } from "@/db";
 import { pageUser } from "@/lib/permissions";
-import { listBoard, membersById, type BoardPost } from "@/server/board";
-import { availableIdea } from "@/server/ideas";
+import { ARCHIVE_PAGE, countArchived, decodeCursor, encodeCursor, listBoard, membersById, type BoardPost } from "@/server/board";
+import { countBank } from "@/server/ideas";
 import { boardVersion } from "@/server/live";
+import { SEARCH_MAX } from "@/lib/limits";
 import { PinnedPost, PostCard } from "@/components/board/post-card";
 import { LiveRefresh } from "@/components/board/live-refresh";
 import { DAILY_DRAW_HOUR, dayKey, formatDayFr } from "@/lib/dates";
 import { EmptyState } from "@/components/board/empty-state";
 
-export default async function BoardPage({ searchParams }: { searchParams: Promise<{ q?: string | string[] }> }) {
+const first = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v);
+
+export default async function BoardPage({ searchParams }: { searchParams: Promise<{ q?: string | string[]; before?: string | string[] }> }) {
   const u = await pageUser();
-  const { q: rawQ } = await searchParams;
-  const q = (Array.isArray(rawQ) ? rawQ[0] : rawQ)?.trim().slice(0, 80) || undefined;
+  const params = await searchParams;
+  const q = first(params.q)?.trim().slice(0, SEARCH_MAX) || undefined;
+  const before = decodeCursor(first(params.before));
   const now = new Date();
 
-  const [active, archives, bank] = await Promise.all([
-    // every active tier list (daily + extras, and two dailies around a DST change)
-    q ? Promise.resolve([] as BoardPost[]) : listBoard(u.id, { scope: "active", now }),
-    listBoard(u.id, { scope: "archived", q, now }),
-    db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.ideas)
-      .where(availableIdea())
-      .then((r) => r[0]?.n ?? 0),
+  // version first: a change landing while the page renders is caught by the next poll
+  const version = await boardVersion();
+  const [active, archives, total, bank] = await Promise.all([
+    // every active tier list (daily + extras, and two dailies around a DST change), on the first page only
+    q || before ? Promise.resolve([] as BoardPost[]) : listBoard(u.id, { scope: "active", now }),
+    listBoard(u.id, { scope: "archived", q, before, now }),
+    countArchived(q, now),
+    countBank(),
   ]);
   const members = await membersById([...new Set([...active, ...archives].flatMap((p) => p.top3))]);
+  const last = archives.at(-1);
+  const older = archives.length === ARCHIVE_PAGE && last ? `/?${new URLSearchParams({ ...(q ? { q } : {}), before: encodeCursor({ createdAt: last.createdAt, id: last.id }) })}` : null;
 
   return (
     <div className="flex flex-col gap-6">
-      <LiveRefresh initial={await boardVersion()} />
+      <LiveRefresh initial={version} />
       {/* phone: the sticky TierUs header (layout) is enough */}
       <header className="hidden lg:block">
         <p className="text-sm font-semibold text-muted-foreground capitalize">{formatDayFr(dayKey(now))}</p>
@@ -39,10 +42,11 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
       </header>
 
       {!q &&
+        !before &&
         (active.length ? (
           <div className="flex flex-col gap-4">
             {active.map((p) => (
-              <PinnedPost key={p.id} post={p} members={members} now={now} />
+              <PinnedPost key={p.id} post={p} members={members} />
             ))}
           </div>
         ) : (
@@ -62,10 +66,10 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-extrabold lg:text-3xl">Archives</h2>
-          <span className="text-sm text-muted-foreground">{archives.length}</span>
+          <span className="text-sm text-muted-foreground">{total}</span>
         </div>
         {/* search only once there's something to search */}
-        {(q || archives.length >= 6) && (
+        {(q || total >= 6) && (
         <form action="/" className="flex h-12 items-center lg:max-w-md gap-3 rounded-xl border-2 border-board-edge bg-board px-4 focus-within:border-primary">
           <Search className="size-5 shrink-0 text-muted-foreground" />
           <input
@@ -73,7 +77,8 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
             type="search"
             placeholder="Rechercher une tier list…"
             defaultValue={q}
-            maxLength={80}
+            maxLength={SEARCH_MAX}
+            aria-label="Rechercher une tier list"
             className="h-full w-full bg-transparent text-base outline-none placeholder:text-muted-foreground"
           />
         </form>
@@ -86,6 +91,12 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
               <PostCard key={p.id} post={p} members={members} />
             ))}
           </div>
+        )}
+        {(older || before) && (
+          <nav className="flex justify-between gap-3 text-sm font-semibold" aria-label="Pages des archives">
+            {before ? <Link href={q ? `/?${new URLSearchParams({ q })}` : "/"} className="text-muted-foreground underline-offset-4 hover:underline">← Les plus récentes</Link> : <span />}
+            {older && <Link href={older} className="text-muted-foreground underline-offset-4 hover:underline">Plus anciennes →</Link>}
+          </nav>
         )}
       </section>
     </div>

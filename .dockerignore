@@ -6,3 +6,10 @@ storage
 .git
 coverage
 *.tsbuildinfo
+# not needed in the image (tests, CI, docs, server-side deploy files)
+tests
+.github
+.claude
+deploy
+*.md
+!README.md

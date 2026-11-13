@@ -1,7 +1,7 @@
 import { TIERS, type Tier } from "@/lib/tiers";
 import { AvatarTile } from "./avatar-tile";
 import { TierBoardFrame, TierRow } from "./tier-row";
-import type { Member } from "./types";
+import type { Member } from "@/lib/types";
 
 /** Read-only tier list: `rows` maps each tier to ordered member ids. */
 export function TierResult({

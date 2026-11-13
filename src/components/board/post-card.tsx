@@ -2,9 +2,10 @@ import Link from "next/link";
 import { MessageCircle, ArrowRight, Pin, Sparkles } from "lucide-react";
 import { cva } from "class-variance-authority";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
-import { formatDayFr, formatRemaining, formatTimeFr } from "@/lib/dates";
+import { formatDayFr, formatTimeFr } from "@/lib/dates";
+import { Countdown } from "./countdown";
 import type { BoardPost } from "@/server/board";
-import type { Member } from "@/components/tier-board/types";
+import type { Member } from "@/lib/types";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
@@ -24,7 +25,9 @@ function status(post: BoardPost) {
   return post.mine ? { label: "Joué", tone: "muted" as const } : { label: "Pas joué", tone: "muted" as const };
 }
 
-export const postHref = (post: { id: string }) => `/r/${post.id}`;
+const postHref = (post: { id: string }) => `/r/${post.id}`;
+/** A short accessible name: the whole card (podium, counters) would be read otherwise. */
+const postLabel = (post: BoardPost) => `${post.title} · ${status(post).label}`;
 
 function Podium({ post, members }: { post: BoardPost; members: Map<string, Member> }) {
   if (!post.top3.length) return null;
@@ -62,11 +65,11 @@ function Meta({ post }: { post: BoardPost }) {
 }
 
 /** An active tier list: the big pinned hero (several can be active at once). */
-export function PinnedPost({ post, members, now }: { post: BoardPost; members: Map<string, Member>; now: Date }) {
+export function PinnedPost({ post, members }: { post: BoardPost; members: Map<string, Member> }) {
   const s = status(post);
   const cta = post.mine ? "Voir les résultats" : "Jouer";
   return (
-    <Link href={postHref(post)} className="group block animate-rise">
+    <Link href={postHref(post)} aria-label={postLabel(post)} className="group block animate-rise">
       <article className="flex flex-col gap-4 rounded-3xl border-2 border-ink bg-primary p-5 text-primary-foreground shadow-pop-lg transition-transform duration-100 group-hover:-translate-y-1 group-active:translate-y-1 group-active:shadow-pop lg:gap-6 lg:p-10">
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1 font-display text-xs font-bold tracking-widest uppercase">
@@ -97,7 +100,7 @@ export function PinnedPost({ post, members, now }: { post: BoardPost; members: M
         <Podium post={post} members={members} />
         <div className="flex items-center justify-between gap-3">
           <span className="flex flex-wrap items-center gap-1 text-sm">
-            <strong>{post.played}</strong>/{post.total} ont joué · <MessageCircle className="size-4" /> {post.comments} · {formatRemaining(post.expiresAt.getTime() - now.getTime())}
+            <strong>{post.played}</strong>/{post.total} ont joué · <MessageCircle className="size-4" /> {post.comments} · <Countdown expiresAt={post.expiresAt.toISOString()} />
           </span>
           <span className="flex shrink-0 items-center gap-1 rounded-xl border-2 border-ink bg-card px-4 py-2 font-display font-bold text-foreground lg:px-6 lg:py-3 lg:text-lg">
             {cta} <ArrowRight className="size-4" />
@@ -112,7 +115,7 @@ export function PinnedPost({ post, members, now }: { post: BoardPost; members: M
 export function PostCard({ post, members }: { post: BoardPost; members: Map<string, Member> }) {
   const s = status(post);
   return (
-    <Link href={postHref(post)} className="group block">
+    <Link href={postHref(post)} aria-label={postLabel(post)} className="group block">
       <article className="flex h-full flex-col gap-3 rounded-2xl border-2 border-board-edge bg-card p-4 transition-transform duration-100 group-hover:-translate-y-1 group-hover:border-primary group-active:scale-99 lg:p-5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold text-muted-foreground capitalize">

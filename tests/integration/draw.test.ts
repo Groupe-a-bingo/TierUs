@@ -80,7 +80,7 @@ describe("drawDaily (08:00 Europe/Paris)", () => {
       await makeIdeas(1, `Course ${i}`);
       const pending = await makeUser({ status: "pending" });
       // both orders are possible; neither may lose the member
-      const [, drawn] = await Promise.all([setMemberStatus(pending.id, "active", null, "pending"), drawActive()]);
+      const [, drawn] = await Promise.all([setMemberStatus(pending.id, "active", null), drawActive()]);
       if (drawn.status !== "created") throw new Error("setup");
       expect((await getTargets(drawn.roundId)).map((t) => t.id), `iteration ${i}`).toContain(pending.id);
     }
@@ -170,7 +170,7 @@ describe("rerollRound", () => {
     const r = await drawActive();
     if (r.status !== "created") throw new Error("setup");
     const res = await rerollRound(r.roundId);
-    expect(res.ok).toBe(true);
+    expect((await round(r.roundId)).ideaId).toBe(res.ideaId);
     const [old] = await db.select().from(schema.ideas).where(eq(schema.ideas.id, r.ideaId));
     expect(old.usedAt).toBeNull();
     expect((await round(r.roundId)).ideaId).not.toBe(r.ideaId);
@@ -182,12 +182,12 @@ describe("rerollRound", () => {
     await makeIdeas(1);
     const r = await drawActive();
     if (r.status !== "created") throw new Error("setup");
-    expect(await rerollRound(r.roundId)).toEqual({ ok: false, error: "Aucune autre idée disponible dans la banque" });
+    await expect(rerollRound(r.roundId)).rejects.toMatchObject({ status: 400, message: "Aucune autre idée disponible dans la banque" });
 
     await makeIdeas(1, "Autre");
-    expect(await rerollRound(r.roundId, new Date(Date.now() + 25 * HOUR_MS))).toEqual({ ok: false, error: "Cette tier list est archivée" });
+    await expect(rerollRound(r.roundId, null, new Date(Date.now() + 25 * HOUR_MS))).rejects.toMatchObject({ message: "Cette tier list est archivée" });
     const targets = await getTargets(r.roundId);
     await submitTierList(u.id, { roundId: r.roundId, placements: placementsFor(targets, () => "S") });
-    expect(await rerollRound(r.roundId)).toEqual({ ok: false, error: "Impossible : des membres ont déjà joué" });
+    await expect(rerollRound(r.roundId)).rejects.toMatchObject({ message: "Impossible : des membres ont déjà joué" });
   });
 });

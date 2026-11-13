@@ -3,16 +3,17 @@
  * Env: E2E_BASE_URL (the app), TEST_DATABASE_URL (same DB the app uses, to
  * validate accounts), and the app must run with CLIENT_IP_HEADER=x-test-ip.
  * The suite writes to that database (sign-ups, status changes): like the
- * integration suite, it refuses any database whose name doesn't contain "test".
+ * integration suite, it refuses anything but a local database named "*_test".
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import sharp from "sharp";
+import { assertTestDatabase } from "../support/test-db";
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 if (!TEST_DB_URL) throw new Error("TEST_DATABASE_URL is not set (HTTP tests need a dedicated test database)");
+assertTestDatabase(TEST_DB_URL);
 const testDbName = new URL(TEST_DB_URL).pathname.slice(1);
-if (!/test/i.test(testDbName)) throw new Error(`Refusing to run HTTP tests on database "${testDbName}" (name must contain "test")`);
 // the app under test must use that same database, never a real one
 const appDb = process.env.DATABASE_URL;
 if (appDb && new URL(appDb).pathname.slice(1) !== testDbName) {

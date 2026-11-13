@@ -2,45 +2,34 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { isModerator, requireActiveUser, requireModerator } from "@/lib/permissions";
-import { rateLimit } from "@/lib/rate-limit";
-import { audit } from "@/lib/audit";
-import { badRequest, runAction } from "@/lib/errors";
+import { isModerator } from "@/lib/permissions";
+import { guard } from "@/lib/guard";
+import { parseInput, runAction } from "@/lib/errors";
+import { IDEA_DESCRIPTION_MAX, IDEA_TITLE_MAX, IDEA_TITLE_MIN } from "@/lib/limits";
 import { catchUpDaily } from "@/server/rounds/catch-up";
 import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
 
-const reviewDecision = z.enum(["approved", "rejected"]);
-/** the exact text the moderator saw (not trimmed: compared as stored) */
-const reviewedText = z.object({ title: z.string().max(120), description: z.string().max(500).nullable() });
-
+const ideaId = z.string().uuid();
 const ideaSchema = z.object({
-  title: z.string().trim().min(3, "Titre trop court").max(120, "120 caractères max"),
-  description: z.string().trim().max(500, "500 caractères max").optional().default(""),
+  title: z.string().trim().min(IDEA_TITLE_MIN, "Titre trop court").max(IDEA_TITLE_MAX, `${IDEA_TITLE_MAX} caractères max`),
+  description: z
+    .string()
+    .trim()
+    .max(IDEA_DESCRIPTION_MAX, `${IDEA_DESCRIPTION_MAX} caractères max`)
+    .optional()
+    .transform((d) => d || null),
+});
+const reviewSchema = z.object({
+  id: ideaId,
+  decision: z.enum(["approved", "rejected"]),
+  /** the exact text the moderator saw (not trimmed: compared as stored) */
+  seen: z.object({ title: z.string().max(IDEA_TITLE_MAX), description: z.string().max(IDEA_DESCRIPTION_MAX).nullable() }),
 });
 
-export async function addIdea(input: { title: string; description?: string }) {
-  return runAction(async () => {
-    const u = await requireActiveUser();
-    await rateLimit("idea", u.id);
-    const parsed = ideaSchema.safeParse(input);
-    if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message);
-    const status = await createIdea({ id: u.id, isModerator: isModerator(u) }, { title: parsed.data.title, description: parsed.data.description || null });
-    revalidatePath("/ideas");
-    if (status === "pending") revalidatePath("/mod");
-    else {
-      revalidatePath("/"); // bank counter
-      await catchUpDaily(u.id, "idea");
-    }
-    return { status };
-  });
-}
-
-/** Author or moderator, while the idea has never been played. */
-async function ideaActor() {
-  const u = await requireActiveUser();
-  const mod = isModerator(u);
-  await rateLimit(mod ? "modAction" : "ideaEdit", u.id);
-  return { id: u.id, isModerator: mod };
+/** An idea entered the bank: home counter, and maybe the daily that was missing. */
+async function bankGrew(actorId: string, trigger: "idea" | "review") {
+  revalidatePath("/");
+  await catchUpDaily(actorId, trigger);
 }
 
 function revalidateIdeas() {
@@ -48,19 +37,31 @@ function revalidateIdeas() {
   revalidatePath("/mod");
 }
 
+export async function addIdea(input: { title: string; description?: string }) {
+  return runAction(async () => {
+    const u = await guard("active", "idea");
+    const idea = parseInput(ideaSchema, input);
+    const status = await createIdea({ id: u.id, isModerator: isModerator(u) }, idea);
+    revalidateIdeas();
+    if (status === "approved") await bankGrew(u.id, "idea");
+    return { status };
+  });
+}
+
+/** Author or moderator, while the idea has never been played. */
+async function ideaActor() {
+  const u = await guard("active", "ideaEdit");
+  return { id: u.id, isModerator: isModerator(u) };
+}
+
 export async function updateIdea(id: string, input: { title: string; description?: string }) {
   return runAction(async () => {
     const actor = await ideaActor();
-    const parsed = ideaSchema.safeParse(input);
-    if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message);
-    const ideaId = z.string().uuid().safeParse(id);
-    if (!ideaId.success) throw badRequest();
-    const { status, previous } = await editIdea(actor, ideaId.data, { title: parsed.data.title, description: parsed.data.description || null });
-    await audit(actor.id, "idea.update", "idea", ideaId.data, { ...parsed.data, from: previous, to: status });
+    const idea = parseInput(ideaSchema, input);
+    const { status, previous } = await editIdea(actor, parseInput(ideaId, id), idea);
     revalidateIdeas();
-    // the idea entered or left the bank: board counter (and maybe the missing daily)
-    if (status !== previous && (status === "approved" || previous === "approved")) revalidatePath("/");
-    if (status === "approved" && previous !== "approved") await catchUpDaily(actor.id, "idea");
+    if (status === "approved" && previous !== "approved") await bankGrew(actor.id, "idea");
+    else if (previous === "approved" && status !== "approved") revalidatePath("/");
     return { status };
   });
 }
@@ -68,29 +69,19 @@ export async function updateIdea(id: string, input: { title: string; description
 export async function deleteIdea(id: string) {
   return runAction(async () => {
     const actor = await ideaActor();
-    const ideaId = z.string().uuid().safeParse(id);
-    if (!ideaId.success) throw badRequest();
-    const removed = await removeIdea(actor, ideaId.data);
-    await audit(actor.id, "idea.delete", "idea", ideaId.data, { title: removed.title });
+    const removed = await removeIdea(actor, parseInput(ideaId, id));
     revalidateIdeas();
+    if (removed.status === "approved") revalidatePath("/"); // bank counter
   });
 }
 
 /** Moderators approve or refuse an idea waiting for validation. */
 export async function reviewIdeaAction(id: string, decision: "approved" | "rejected", seen: { title: string; description: string | null }) {
   return runAction(async () => {
-    const mod = await requireModerator();
-    await rateLimit("modAction", mod.id);
-    const ideaId = z.string().uuid().safeParse(id);
-    const parsed = reviewDecision.safeParse(decision);
-    const text = reviewedText.safeParse(seen);
-    if (!ideaId.success || !parsed.success || !text.success) throw badRequest();
-    const idea = await reviewIdea(ideaId.data, parsed.data, text.data);
-    await audit(mod.id, parsed.data === "approved" ? "idea.approve" : "idea.reject", "idea", ideaId.data, { title: idea.title });
+    const mod = await guard("moderator", "modAction");
+    const input = parseInput(reviewSchema, { id, decision, seen });
+    await reviewIdea(input.id, input.decision, input.seen, mod.id);
     revalidateIdeas();
-    if (parsed.data === "approved") {
-      revalidatePath("/");
-      await catchUpDaily(mod.id, "review");
-    }
+    if (input.decision === "approved") await bankGrew(mod.id, "review");
   });
 }

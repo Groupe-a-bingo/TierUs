@@ -3,13 +3,30 @@ import { db, schema } from "@/db";
 import type { Tier } from "@/lib/tiers";
 import { drawExtra } from "@/server/rounds/draw";
 
-/** Wipe every app table (integration DB only, see integration-setup.ts). */
+/**
+ * Wipe every table of the schema (integration DB only, see integration-setup.ts).
+ * Listed from the database itself: a new table can't be forgotten.
+ */
 export async function resetDb() {
-  await db.execute(sql`
-    truncate table reactions, comments, placements, submissions, round_targets, rounds, ideas, app_settings,
-      audit_log, files, session, account, verification, rate_limit, app_rate_limits, "user"
-    restart identity cascade
+  const { rows } = await db.execute<{ name: string }>(sql`
+    select quote_ident(tablename) as name from pg_tables
+    where schemaname = 'public' and tablename <> '__drizzle_migrations'
   `);
+  await db.execute(sql.raw(`truncate table ${rows.map((r) => r.name).join(", ")} restart identity cascade`));
+}
+
+/** Resolves once some other connection is waiting on a lock (proves a test really blocks). */
+export async function waitUntilBlockedOnLock(timeoutMs = 5000) {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    const { rows } = await db.execute<{ n: number }>(sql`
+      select count(*)::int as n from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()
+    `);
+    if (rows[0]?.n) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("No transaction ended up waiting on a lock");
 }
 
 let n = 0;
@@ -23,6 +40,7 @@ export async function makeUser(over: Partial<typeof schema.user.$inferInsert> = 
       email: over.email ?? `user${n}-${crypto.randomUUID().slice(0, 6)}@test.local`,
       status: "active",
       role: "member",
+      avatarFileId: null,
       ...over,
     })
     .returning();

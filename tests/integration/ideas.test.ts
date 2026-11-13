@@ -5,7 +5,7 @@ import { db, schema } from "@/db";
 import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
 import { getIdeaValidation, setIdeaValidation } from "@/server/settings";
 import { rerollRound } from "@/server/rounds/draw";
-import { drawActive, makeUser, resetDb } from "../support/factories";
+import { drawActive, makeUser, resetDb, waitUntilBlockedOnLock } from "../support/factories";
 
 beforeEach(resetDb);
 
@@ -99,7 +99,7 @@ describe("idea validation", () => {
     await ideaBy(a.id, "En attente", "pending");
     const res = await drawActive();
     if (res.status !== "created") throw new Error(res.status);
-    expect(await rerollRound(res.roundId)).toMatchObject({ ok: false });
+    await expect(rerollRound(res.roundId)).rejects.toMatchObject({ status: 400 });
   });
 
   it("refusing marks the idea; its author can fix it and it goes back to the queue", async () => {
@@ -221,8 +221,9 @@ describe("idea validation setting", () => {
       await tx.insert(schema.ideas).values({ title: "Pendant la bascule", authorId: a.id, status: "pending" });
     });
     await read;
-    const off = setIdeaValidation(false, admin.id); // waits for the member's transaction
-    await new Promise((r) => setTimeout(r, 100));
+    const off = setIdeaValidation(false, admin.id);
+    // the switch really waits for the member's transaction (not just "probably" after a sleep)
+    await waitUntilBlockedOnLock();
     release();
     await write;
     expect(await off).toEqual({ approved: 1 });

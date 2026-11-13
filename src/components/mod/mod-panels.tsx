@@ -1,8 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { useState } from "react";
 import { cva } from "class-variance-authority";
 import { Ban, MoreHorizontal, ShieldMinus, ShieldPlus, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,30 +13,27 @@ import { deleteIdea, reviewIdeaAction } from "@/app/actions/ideas";
 import { createExtraRoundAction, drawNowAction } from "@/app/actions/rounds";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ActionResult } from "@/lib/errors";
 import { EmptyState } from "@/components/board/empty-state";
+import { useServerAction } from "@/hooks/use-server-action";
+import type { Member } from "@/lib/types";
 
-function useAction() {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const run = (fn: () => Promise<ActionResult<unknown>>, ok: string, confirmMsg?: string) => {
-    if (confirmMsg && !confirm(confirmMsg)) return;
-    startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) {
-        toast.error(res.error);
-        // usually the page is out of date (idea edited or already reviewed, member changed): reload it
-        router.refresh();
-      } else toast.success(ok); // actions revalidate: fresh UI comes back in the same response
-    });
+/**
+ * Moderation calls: a refusal usually means the page is out of date (idea
+ * edited or already reviewed, member changed): reload it. On success the
+ * action revalidates and the fresh UI comes back in the same response.
+ */
+function useModAction() {
+  const { pending, run } = useServerAction();
+  return {
+    pending,
+    run: (fn: Parameters<typeof run>[0], success: string, confirm?: string) => run(fn, { success, confirm, refreshOnError: true }),
   };
-  return { pending, run };
 }
 
-type U = { id: string; name: string; email: string; avatarFileId: string | null; role: string; status: string };
+type ModMember = Member & { role: string; status: string };
 
-export function PendingUsers({ users }: { users: U[] }) {
-  const { pending, run } = useAction();
+export function PendingUsers({ users }: { users: (ModMember & { email: string })[] }) {
+  const { pending, run } = useModAction();
   if (!users.length) return <EmptyState>Aucune inscription en attente.</EmptyState>;
   return (
     <ul className="flex flex-col gap-3">
@@ -48,8 +43,14 @@ export function PendingUsers({ users }: { users: U[] }) {
           <div className="min-w-0 flex-1">
             <p className="truncate font-medium">{u.name}</p>
             <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+            {!u.avatarFileId && <p className="text-xs text-muted-foreground">Pas encore de photo</p>}
           </div>
-          <Button size="sm" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}>
+          <Button
+            size="sm"
+            disabled={pending || !u.avatarFileId}
+            title={u.avatarFileId ? undefined : "Il faut une photo de profil pour être validé"}
+            onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}
+          >
             Valider
           </Button>
           <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "rejected"), "Refusé", `Refuser ${u.name} ?`)}>
@@ -64,8 +65,8 @@ export function PendingUsers({ users }: { users: U[] }) {
 const roleLabel: Record<string, string> = { moderator: "modo", admin: "admin" };
 
 /** Secondary actions sit behind a "⋯" menu: the row only shows who the member is. */
-export function Members({ users, viewerId, viewerIsAdmin }: { users: U[]; viewerId: string; viewerIsAdmin: boolean }) {
-  const { pending, run } = useAction();
+export function Members({ users, viewerId, viewerIsAdmin }: { users: ModMember[]; viewerId: string; viewerIsAdmin: boolean }) {
+  const { pending, run } = useModAction();
   return (
     <ul className="flex flex-col gap-3">
       {users.map((u) => {
@@ -127,7 +128,7 @@ const seenText = (i: { title: string; description: string | null }) => ({ title:
 
 /** Ideas waiting for validation, oldest first: approved ones enter the bank. */
 export function PendingIdeas({ ideas }: { ideas: PendingIdea[] }) {
-  const { pending, run } = useAction();
+  const { pending, run } = useModAction();
   if (!ideas.length) return <EmptyState>Aucune idée à valider.</EmptyState>;
   return (
     <ul className="flex flex-col gap-2">
@@ -157,24 +158,20 @@ export function PendingIdeas({ ideas }: { ideas: PendingIdea[] }) {
  * The server refuses a no-op (page out of date): we then reload the real state.
  */
 export function IdeaValidationToggle({ enabled, waiting }: { enabled: boolean; waiting: number }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const toggle = () => {
-    if (enabled && waiting && !confirm(`Désactiver la validation ? Les idées en attente (${waiting}) partiront directement dans la banque.`)) return;
-    startTransition(async () => {
-      const res = await setIdeaValidationAction(!enabled);
-      if (!res.ok) {
-        toast.error(res.error);
-        router.refresh();
-        return;
-      }
-      const released = res.data?.approved ?? 0;
-      toast.success(enabled ? `Validation désactivée${released ? ` · ${released} idée(s) entrée(s) dans la banque` : ""}` : "Validation activée");
+  const { pending, run } = useServerAction();
+  const toggle = () =>
+    run(() => setIdeaValidationAction(!enabled), {
+      confirm: enabled && waiting ? `Désactiver la validation ? Les idées en attente (${waiting}) partiront directement dans la banque.` : undefined,
+      refreshOnError: true,
+      success: (data) => {
+        const released = data?.approved ?? 0;
+        return enabled ? `Validation désactivée${released ? ` · ${released} idée(s) entrée(s) dans la banque` : ""}` : "Validation activée";
+      },
     });
-  };
+  // fixed name + aria-pressed: screen readers announce "Validation des idées, activé"
   return (
     <Button size="sm" variant={enabled ? "default" : "outline"} aria-pressed={enabled} disabled={pending} onClick={toggle}>
-      {enabled ? "Validation activée" : "Validation désactivée"}
+      Validation des idées : {enabled ? "activée" : "désactivée"}
     </Button>
   );
 }
@@ -188,7 +185,7 @@ type Idea = { id: string; title: string; description: string | null; author: str
 type BankFilter = "available" | "used" | "rejected" | "all";
 
 export function IdeaBank({ ideas, availableCount }: { ideas: Idea[]; availableCount: number }) {
-  const { pending, run } = useAction();
+  const { pending, run } = useModAction();
   const [editing, setEditing] = useState<string | null>(null);
   const [filter, setFilter] = useState<BankFilter>("available");
   const matches: Record<BankFilter, (i: Idea) => boolean> = {
@@ -208,7 +205,7 @@ export function IdeaBank({ ideas, availableCount }: { ideas: Idea[]; availableCo
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
         {(["available", "used", "rejected", "all"] as const).map((f) => (
-          <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} onClick={() => setFilter(f)}>
+          <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} aria-pressed={filter === f} onClick={() => setFilter(f)}>
             {label[f]}
           </Button>
         ))}
@@ -255,7 +252,7 @@ export function IdeaBank({ ideas, availableCount }: { ideas: Idea[]; availableCo
 }
 
 export function DrawNow() {
-  const { pending, run } = useAction();
+  const { pending, run } = useModAction();
   return (
     <Button disabled={pending} onClick={() => run(() => drawNowAction(), "Tier list du jour tirée !")}>
       Tirer la tier list du jour maintenant
@@ -265,7 +262,7 @@ export function DrawNow() {
 
 /** Extra tier list on top of the daily one, with its own lifetime (TTL, in real hours). */
 export function CreateExtraRound({ defaultTtl, minTtl, maxTtl, disabled }: { defaultTtl: number; minTtl: number; maxTtl: number; disabled: boolean }) {
-  const { pending, run } = useAction();
+  const { pending, run } = useModAction();
   const [ttl, setTtl] = useState(String(defaultTtl));
   const hours = Number(ttl);
   const valid = Number.isInteger(hours) && hours >= minTtl && hours <= maxTtl;

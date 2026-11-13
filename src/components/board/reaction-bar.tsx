@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useRef, useState } from "react";
 import { SmilePlus } from "lucide-react";
 import { cva } from "class-variance-authority";
-import { toast } from "sonner";
 import { REACTION_EMOJIS, type ReactionEmoji } from "@/lib/reactions";
-import { toggleReaction } from "@/app/actions/social";
+import type { ReactionSummary } from "@/lib/types";
+import { setReaction } from "@/app/actions/social";
+import { useServerAction } from "@/hooks/use-server-action";
 
 const chip = cva(
   "flex h-9 items-center gap-1 rounded-full border-2 px-3 text-base transition-transform duration-75 select-none active:scale-90",
@@ -16,26 +17,27 @@ const chip = cva(
   },
 );
 
-export type ReactionSummary = { emoji: string; count: number; mine: boolean };
 
 /** Optimistic reactions for one post or comment, shared by its chips and its picker. */
 export function useReactions(roundId: string, commentId: string | undefined, reactions: ReactionSummary[]) {
-  const [, startTransition] = useTransition();
-  const [list, apply] = useOptimistic(reactions, (state, emoji: string) => {
+  const { run } = useServerAction();
+  const [list, apply] = useOptimistic(reactions, (state, { emoji, on }: { emoji: string; on: boolean }) => {
     const existing = state.find((r) => r.emoji === emoji);
-    if (!existing) return [...state, { emoji, count: 1, mine: true }];
-    return state
-      .map((r) => (r.emoji === emoji ? { ...r, mine: !r.mine, count: r.count + (r.mine ? -1 : 1) } : r))
-      .filter((r) => r.count > 0);
+    if (!existing) return on ? [...state, { emoji, count: 1, mine: true }] : state;
+    if (existing.mine === on) return state;
+    return state.map((r) => (r.emoji === emoji ? { ...r, mine: on, count: r.count + (on ? 1 : -1) } : r)).filter((r) => r.count > 0);
   });
 
-  const toggle = (emoji: ReactionEmoji) =>
-    startTransition(async () => {
-      apply(emoji);
+  // sends the state wanted, not "toggle": a double tap or a stale tab can't
+  // end up the opposite of what the member sees
+  const toggle = (emoji: ReactionEmoji) => {
+    const on = !list.find((r) => r.emoji === emoji)?.mine;
+    run(() => {
+      apply({ emoji, on });
       // the action revalidates the post, so real counts arrive in the same response
-      const res = await toggleReaction({ roundId, commentId, emoji });
-      if (!res.ok) toast.error(res.error);
+      return setReaction({ roundId, commentId, emoji, on });
     });
+  };
 
   // the picker only offers emojis nobody has used yet: existing ones are chips
   // (tap a chip to add / remove yours)
@@ -48,7 +50,14 @@ export function ReactionChips({ list, toggle }: { list: ReactionSummary[]; toggl
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {list.map((r) => (
-        <button key={r.emoji} type="button" className={chip({ mine: r.mine })} onClick={() => toggle(r.emoji as ReactionEmoji)}>
+        <button
+          key={r.emoji}
+          type="button"
+          className={chip({ mine: r.mine })}
+          aria-pressed={r.mine}
+          aria-label={`${r.emoji} ${r.count}`}
+          onClick={() => toggle(r.emoji as ReactionEmoji)}
+        >
           <span>{r.emoji}</span>
           <span className="font-display text-sm font-bold">{r.count}</span>
         </button>
@@ -93,7 +102,11 @@ export function ReactionPicker({
     const onDown = (e: PointerEvent) => {
       if (!wrap.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      btn.current?.focus(); // back to the button that opened it
+    };
     document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {

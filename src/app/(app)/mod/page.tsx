@@ -1,23 +1,28 @@
 import Link from "next/link";
-import { asc, desc, eq, isNotNull, ne, sql, type SQL } from "drizzle-orm";
+import { asc, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { pageModerator } from "@/lib/permissions";
 import { db, schema } from "@/db";
-import { DAILY_DRAW_HOUR, DEFAULT_TTL_HOURS, MAX_TTL_HOURS, MIN_TTL_HOURS, dueDailyKey, formatRemaining } from "@/lib/dates";
-import { getActiveRounds, getDailyRound } from "@/server/rounds/queries";
+import { DAILY_DRAW_HOUR, DEFAULT_TTL_HOURS, MAX_TTL_HOURS, MIN_TTL_HOURS, dueDailyKey } from "@/lib/dates";
+import { auditLabel } from "@/lib/audit-actions";
+import { getActiveRounds, getDailyRoundId } from "@/server/rounds/queries";
 import { getIdeaValidation } from "@/server/settings";
-import { availableIdea } from "@/server/ideas";
+import { countBank, countIdeas } from "@/server/ideas";
+import { Countdown } from "@/components/board/countdown";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateExtraRound, DrawNow, IdeaBank, IdeaValidationToggle, Members, PendingIdeas, PendingUsers } from "@/components/mod/mod-panels";
 import { EmptyState } from "@/components/board/empty-state";
 
-const userCols = {
+const memberCols = {
   id: schema.user.id,
   name: schema.user.name,
-  email: schema.user.email,
   avatarFileId: schema.user.avatarFileId,
   role: schema.user.role,
   status: schema.user.status,
 };
+/** Sign-ups only: the email helps recognise who's asking. Validated members' emails never leave the server. */
+const signUpCols = { ...memberCols, email: schema.user.email };
+/** The bank list shows this many ideas, newest first. */
+const BANK_LIMIT = 1000;
 
 export default async function ModPage() {
   const me = await pageModerator();
@@ -32,17 +37,10 @@ export default async function ModPage() {
     status: schema.ideas.status,
     author: schema.user.name,
   };
-  const countIdeas = (where: SQL | undefined) =>
-    db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.ideas)
-      .where(where)
-      .then((r) => r[0]?.n ?? 0);
-
   const WAITING_LIMIT = 200;
   const [pending, members, ideas, waiting, available, active, daily, logs, validation] = await Promise.all([
-    db.select(userCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
-    db.select(userCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
+    db.select(signUpCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
+    db.select(memberCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
     // the bank (approved + refused), newest first
     db
       .select(ideaCols)
@@ -50,7 +48,7 @@ export default async function ModPage() {
       .leftJoin(schema.user, eq(schema.user.id, schema.ideas.authorId))
       .where(ne(schema.ideas.status, "pending"))
       .orderBy(desc(schema.ideas.createdAt))
-      .limit(1000),
+      .limit(BANK_LIMIT),
     // the validation queue, oldest first like the sign-ups (its own query: never cut by the bank's limit)
     db
       .select(ideaCols)
@@ -59,10 +57,10 @@ export default async function ModPage() {
       .where(eq(schema.ideas.status, "pending"))
       .orderBy(asc(schema.ideas.createdAt))
       .limit(WAITING_LIMIT),
-    countIdeas(availableIdea()),
+    countBank(),
     getActiveRounds(now),
     // null before 08:00: nothing is due yet, so no manual draw button
-    dueKey ? getDailyRound(dueKey) : Promise.resolve(null),
+    dueKey ? getDailyRoundId(dueKey) : Promise.resolve(null),
     db
       .select({ id: schema.auditLog.id, action: schema.auditLog.action, at: schema.auditLog.createdAt, actor: schema.user.name })
       .from(schema.auditLog)
@@ -99,7 +97,7 @@ export default async function ModPage() {
                       {idea.title}
                     </Link>{" "}
                     <span className="text-muted-foreground">
-                      · {round.kind === "daily" ? "du jour" : "bonus"} · {formatRemaining(round.expiresAt.getTime() - now.getTime())}
+                      · {round.kind === "daily" ? "du jour" : "bonus"} · <Countdown expiresAt={round.expiresAt.toISOString()} />
                     </span>
                   </li>
                 ))}
@@ -115,7 +113,7 @@ export default async function ModPage() {
       <Card>
         <CardHeader>
           <CardTitle>Inscriptions en attente ({pending.length})</CardTitle>
-          <CardDescription>Sans photo, le membre apparaîtra avec ses initiales.</CardDescription>
+          <CardDescription>Une photo de profil est obligatoire pour valider un membre : on se classe par photo.</CardDescription>
         </CardHeader>
         <CardContent>
           <PendingUsers users={pending} />
@@ -146,6 +144,7 @@ export default async function ModPage() {
       <Card className="lg:row-span-3">
         <CardHeader>
           <CardTitle>Banque d&apos;idées</CardTitle>
+          {ideas.length === BANK_LIMIT && <CardDescription>Les {BANK_LIMIT} idées les plus récentes.</CardDescription>}
         </CardHeader>
         <CardContent>
           <IdeaBank
@@ -173,7 +172,7 @@ export default async function ModPage() {
           <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
             {logs.map((l) => (
               <li key={l.id}>
-                {new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(l.at)} · {l.actor ?? "?"} · {l.action}
+                {new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(l.at)} · {l.actor ?? "Automatique"} · {auditLabel(l.action)}
               </li>
             ))}
           </ul>

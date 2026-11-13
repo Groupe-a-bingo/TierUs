@@ -7,12 +7,27 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { db, pool, schema } from "@/db";
-import { getActiveRounds, getTargets, getAggregate } from "@/server/rounds/queries";
+import { getActiveRounds, getTargets, getVotes } from "@/server/rounds/queries";
+import { aggregate } from "@/server/rounds/aggregate";
 import { submitTierList } from "@/server/rounds/submit";
 import { TIERS } from "@/lib/tiers";
 
+// writes answers as fixed accounts: never against a real database
+const dbHost = (() => {
+  try {
+    return new URL(process.env.DATABASE_URL ?? "").hostname;
+  } catch {
+    return "";
+  }
+})();
+if (process.env.NODE_ENV === "production" || !["localhost", "127.0.0.1", "::1"].includes(dbHost)) {
+  console.error(`flow-check only runs against a local dev database (DATABASE_URL host: "${dbHost}")`);
+  process.exit(1);
+}
+
 async function uid(name: string) {
   const [u] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.name, name));
+  if (!u) throw new Error(`No account named "${name}" (run npm run db:seed and create it first)`);
   return u.id;
 }
 
@@ -64,7 +79,7 @@ async function main() {
   }
   const [r] = await db.select().from(schema.rounds).where(eq(schema.rounds.id, round.id));
   console.log("expires:", r.expiresAt.toISOString());
-  const agg = await getAggregate(round.id);
+  const agg = aggregate(await getVotes(round.id));
   console.log("average:", agg.results.map((x) => `${x.targetId.slice(0, 6)}=${x.tier}(${x.mean})`).join(" "));
   await pool.end();
 }

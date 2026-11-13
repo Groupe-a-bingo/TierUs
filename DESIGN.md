@@ -8,7 +8,7 @@ La source de vérité reste `src/app/globals.css` (tokens) et les composants ; c
 - **Charbon chaud + six pastels de tiers.** Le fond est sombre et neutre ; les seules couleurs vives sont celles des tiers (S → F). Pas d'autre accent.
 - **Contrôles « stickers » qu'on presse.** Bordure encre (`border-ink`), coins arrondis, ombre dure décalée (`shadow-pop*`) qui s'écrase au clic. Chaque tap donne un retour physique immédiat, sans attendre le réseau.
 - **Mobile d'abord.** Navigation en bas sur mobile, barre latérale sur desktop (`lg:`). Les appuis longs sont des gestes, pas de la sélection de texte.
-- **Pas de couleur ni de valeur en dur.** ESLint (`@shadcn/lint`) refuse les couleurs brutes, valeurs arbitraires, styles inline et restyles des composants `ui/`. Utilise les tokens.
+- **Pas de couleur ni de valeur en dur.** ESLint (`@shadcn/lint`) refuse, hors de `components/ui/`, les couleurs brutes, valeurs arbitraires, styles inline et restyles des composants `ui/` (passe par leurs variantes). Les fichiers de `components/ui/` portent eux-mêmes le style TierUs (les règles y sont désactivées) : un `shadcn add` qui les régénère écraserait ce style, relis le diff. Utilise les tokens.
 
 ## Couleurs (tokens)
 
@@ -53,7 +53,7 @@ Toujours `AvatarTile` (`src/components/tier-board/avatar-tile.tsx`), **toujours 
 | `xl` | profil | 144 px, `rounded-3xl`, contour 4 px + `shadow-pop-lg` |
 
 Sans photo : initiales sur une couleur de tier déterministe (dérivée du nom). États : `selected` (anneau primaire), `dim` (grisé, pendant un glisser).
-N'utilise pas `components/ui/avatar` (rond) pour un membre.
+Un membre s'affiche toujours avec `AvatarTile` (carré), jamais avec un avatar rond.
 
 ## Composants
 

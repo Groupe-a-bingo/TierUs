@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
@@ -11,7 +12,8 @@ const { submissions, rounds } = schema;
  * answer sent after archiving counts for nothing.
  * Derived from the submissions themselves, so it can't drift.
  */
-export async function answeredOnTimeCount(userId: string): Promise<number> {
+// cached per request: the layout and the profile page both show it
+export const answeredOnTimeCount = cache(async (userId: string): Promise<number> => {
   const { rows } = await db.execute<{ n: number }>(sql`
     select count(*)::int as n
     from ${submissions} s
@@ -20,7 +22,7 @@ export async function answeredOnTimeCount(userId: string): Promise<number> {
       and s.submitted_at < r.expires_at
   `);
   return rows[0]?.n ?? 0;
-}
+});
 
 /** Pure rule, shared with the tests: does a first answer at `submittedAt` count? */
 export const countsForCounter = (submittedAt: Date, expiresAt: Date) => submittedAt.getTime() < expiresAt.getTime();

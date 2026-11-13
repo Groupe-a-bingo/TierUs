@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { HOUR_MS } from "@/lib/dates";
-import { drawDaily, drawExtra } from "@/server/rounds/draw";
-import { getProgress, getTargets, getVotes } from "@/server/rounds/queries";
+import { drawDaily, drawExtra, rerollRound } from "@/server/rounds/draw";
+import { getProgress, getRoundById, getTargets, getVotes } from "@/server/rounds/queries";
 import { submitTierList } from "@/server/rounds/submit";
 import { addMemberToActiveRounds, missingTargetsFor } from "@/server/rounds/targets";
 import { answeredOnTimeCount } from "@/server/counter";
@@ -109,7 +109,7 @@ describe("personal counter (tier lists answered before archiving)", () => {
     await play(users[0].id, roundId);
     expect(await answeredOnTimeCount(users[0].id)).toBe(1);
     const newcomer = await makeUser({ status: "pending" });
-    await setMemberStatus(newcomer.id, "active", null, "pending");
+    await setMemberStatus(newcomer.id, "active", null);
     await submitTierList(users[0].id, { roundId, placements: [{ targetId: newcomer.id, tier: "S", position: 0 }] });
     expect(await answeredOnTimeCount(users[0].id)).toBe(1);
   });
@@ -127,7 +127,7 @@ describe("new members joining (complement)", () => {
     await play(a.id, daily.roundId, now);
 
     const newcomer = await makeUser({ status: "pending" });
-    const { addedTo } = await setMemberStatus(newcomer.id, "active", null, "pending", now);
+    const { addedTo } = await setMemberStatus(newcomer.id, "active", null, now);
     expect(addedTo.sort()).toEqual([daily.roundId, extra.roundId].sort());
     const [u] = await db.select().from(schema.user).where(eq(schema.user.id, newcomer.id));
     expect(u.status).toBe("active");
@@ -163,7 +163,7 @@ describe("new members joining (complement)", () => {
     expect((await getTargets(r.roundId)).map((t) => t.id)).not.toContain(pending.id);
   });
 
-  it("a ban removes the member from active tier lists only", async () => {
+  it("a ban leaves the active tier lists, hides the member from archives, and a re-admission brings archives back", async () => {
     const now = DAY_NOON;
     const a = await makeUser();
     const b = await makeUser();
@@ -171,8 +171,39 @@ describe("new members joining (complement)", () => {
     const old = await drawDaily(DAYS_BEFORE);
     const cur = await drawDaily(DAY_8AM);
     if (old.status !== "created" || cur.status !== "created") throw new Error("setup");
-    await setMemberStatus(b.id, "rejected", a.id, "active", now);
+    await play(b.id, old.roundId, DAYS_BEFORE);
+    await play(a.id, old.roundId, DAYS_BEFORE);
+
+    await setMemberStatus(b.id, "rejected", null, now);
     expect((await getTargets(cur.roundId)).map((t) => t.id)).toEqual([a.id]);
+    // archive: b's row is kept (history), but neither b nor their votes count
+    expect((await getTargets(old.roundId)).map((t) => t.id)).toEqual([a.id]);
+    expect(await getProgress(old.roundId)).toEqual({ played: 1, total: 1 });
+    const votes = await getVotes(old.roundId);
+    expect(votes.every((v) => v.voterId === a.id && v.targetId === a.id)).toBe(true);
+
+    await setMemberStatus(b.id, "active", null, now);
     expect(await getTargets(old.roundId)).toHaveLength(2);
+    expect(await getProgress(old.roundId)).toEqual({ played: 2, total: 2 });
+  });
+
+  it("only the tier list's members can answer it (no vote on an archive drawn before joining)", async () => {
+    await makeUser();
+    await makeIdeas(1);
+    const old = await drawDaily(DAYS_BEFORE);
+    if (old.status !== "created") throw new Error("setup");
+    const late = await makeUser({ status: "pending", avatarFileId: null });
+    await setMemberStatus(late.id, "active", null, DAY_NOON); // the archive is not active anymore
+    await expect(play(late.id, old.roundId)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("refuses an answer made on an idea that was re-rolled meanwhile", async () => {
+    const { users, roundId, targets } = await setup();
+    const shown = (await getRoundById(roundId))!.ideaId;
+    await makeIdeas(1, "Autre");
+    await rerollRound(roundId);
+    await expect(
+      submitTierList(users[0].id, { roundId, ideaId: shown, placements: placementsFor(targets, () => "A") }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });

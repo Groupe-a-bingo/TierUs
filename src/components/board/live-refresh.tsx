@@ -4,12 +4,15 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 const INTERVAL_MS = 2000;
+/** After failures the delay doubles up to this (server down, offline, rate limited). */
+const MAX_INTERVAL_MS = 30_000;
 
 /**
  * Polls a tiny version fingerprint and re-renders the page (server side, so
  * every visibility rule is re-applied) only when something actually changed.
  * `initial` is the version the page was rendered with, so nothing that
- * happens before the first poll is missed. Pauses when the tab is hidden.
+ * happens before the first poll is missed. Stops while the tab is hidden
+ * (no timer at all), and backs off after errors.
  */
 export function LiveRefresh({ roundId, initial }: { roundId?: string; initial: string }) {
   const router = useRouter();
@@ -25,38 +28,45 @@ export function LiveRefresh({ roundId, initial }: { roundId?: string; initial: s
     let inFlight = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let ctrl: AbortController | undefined;
+    let delay = INTERVAL_MS;
     const url = roundId ? `/api/live?round=${roundId}` : "/api/live";
 
     const schedule = () => {
       if (timer) clearTimeout(timer);
-      if (!stopped) timer = setTimeout(tick, INTERVAL_MS);
+      timer = undefined;
+      // hidden tab: nothing scheduled, the visibility listener restarts it
+      if (!stopped && document.visibilityState === "visible") timer = setTimeout(tick, delay);
     };
 
     const tick = async () => {
       if (stopped || inFlight) return;
-      if (document.visibilityState === "visible") {
-        inFlight = true;
-        ctrl = new AbortController();
-        try {
-          const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
-          if (res.ok) {
-            const { v } = (await res.json()) as { v: string };
-            if (v !== last.current) {
-              last.current = v;
-              router.refresh();
-            }
+      inFlight = true;
+      ctrl = new AbortController();
+      let ok = false;
+      try {
+        const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+        if (res.ok) {
+          ok = true;
+          const { v } = (await res.json()) as { v: string };
+          if (v !== last.current) {
+            last.current = v;
+            router.refresh();
           }
-        } catch {
-          /* offline / aborted: retry next tick */
-        } finally {
-          inFlight = false;
         }
+      } catch {
+        /* offline / aborted */
+      } finally {
+        inFlight = false;
       }
+      delay = ok ? INTERVAL_MS : Math.min(MAX_INTERVAL_MS, delay * 2);
       schedule();
     };
 
     const onVisible = () => {
-      if (document.visibilityState === "visible" && !inFlight) tick();
+      if (document.visibilityState !== "visible") {
+        if (timer) clearTimeout(timer);
+        timer = undefined;
+      } else if (!inFlight) tick();
     };
 
     schedule();

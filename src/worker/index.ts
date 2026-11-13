@@ -25,7 +25,7 @@ async function main() {
     const res = await drawDaily(now);
     if (res.status === "created") console.log(`[draw] ${dueDailyKey(now)} → created`);
     // warn once per morning, not on every catch-up tick
-    if (res.status === "empty_bank" && localHour(now) === DAILY_DRAW_HOUR && now.getMinutes() < 15) {
+    if (res.status === "empty_bank" && localHour(now) === DAILY_DRAW_HOUR && now.getUTCMinutes() < 15) {
       console.warn("[draw] La banque d'idées est vide ! La prochaine idée qui y entre (proposée ou validée) lancera le tirage.");
     }
   });

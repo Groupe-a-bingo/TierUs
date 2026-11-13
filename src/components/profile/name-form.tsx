@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Check } from "lucide-react";
-import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { updateName } from "@/app/actions/profile";
+import { NAME_MAX, NAME_MIN } from "@/lib/limits";
+import { useServerAction } from "@/hooks/use-server-action";
 
 /** Pseudo field: the save button only shows up once you've changed something. */
 export function NameForm({ initial }: { initial: string }) {
   const [saved, setSaved] = useState(initial);
   const [name, setName] = useState(initial);
-  const [pending, startTransition] = useTransition();
-  const dirty = name.trim() !== saved && name.trim().length >= 2;
+  const { pending, run } = useServerAction();
+  const dirty = name.trim() !== saved && name.trim().length >= NAME_MIN;
 
   return (
     <form
@@ -19,14 +20,7 @@ export function NameForm({ initial }: { initial: string }) {
       onSubmit={(e) => {
         e.preventDefault();
         if (!dirty) return;
-        startTransition(async () => {
-          const res = await updateName(name);
-          if (!res.ok) toast.error(res.error);
-          else {
-            setSaved(name.trim());
-            toast.success("Pseudo enregistré");
-          }
-        });
+        run(() => updateName(name), { success: "Pseudo enregistré", onSuccess: () => setSaved(name.trim()) });
       }}
     >
       <Label htmlFor="pseudo">Pseudo</Label>
@@ -35,8 +29,8 @@ export function NameForm({ initial }: { initial: string }) {
           id="pseudo"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          minLength={2}
-          maxLength={32}
+          minLength={NAME_MIN}
+          maxLength={NAME_MAX}
           autoComplete="nickname"
           className="h-full min-w-0 flex-1 bg-transparent text-base outline-none"
         />

@@ -4,8 +4,28 @@ import fs from "node:fs/promises";
 import sharp, { type Metadata } from "sharp";
 import { badRequest } from "@/lib/errors";
 
-export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/limits";
+
+export { MAX_UPLOAD_BYTES };
 const ALLOWED_FORMATS = new Set(["jpeg", "png", "webp", "gif", "avif", "heif"]);
+
+/** Largest decoded image accepted (pixels), before resizing. */
+const MAX_INPUT_PIXELS = 40_000_000;
+/** Decoding is CPU / memory heavy: at most this many images at once per process. */
+const MAX_CONCURRENT_DECODES = 2;
+
+let running = 0;
+const waiting: (() => void)[] = [];
+async function limited<T>(fn: () => Promise<T>): Promise<T> {
+  if (running >= MAX_CONCURRENT_DECODES) await new Promise<void>((resolve) => waiting.push(resolve));
+  running++;
+  try {
+    return await fn();
+  } finally {
+    running--;
+    waiting.shift()?.();
+  }
+}
 
 const ROOT = path.resolve(process.env.STORAGE_DIR ?? "./storage");
 const AVATAR_DIR = path.join(ROOT, "avatars");
@@ -24,23 +44,24 @@ export function resolveStoragePath(rel: string): string {
  */
 export async function saveAvatar(input: Buffer): Promise<{ relPath: string; mime: string }> {
   if (input.byteLength === 0) throw badRequest("Fichier vide");
-  if (input.byteLength > MAX_UPLOAD_BYTES) throw badRequest("Image trop lourde (5 Mo max)");
+  if (input.byteLength > MAX_UPLOAD_BYTES) throw badRequest(`Image trop lourde (${MAX_UPLOAD_LABEL} max)`);
 
-  let meta: Metadata;
-  try {
-    meta = await sharp(input, { limitInputPixels: 40_000_000 }).metadata();
-  } catch {
-    throw badRequest("Ce fichier n'est pas une image valide");
-  }
-  if (!meta.format || !ALLOWED_FORMATS.has(meta.format)) {
-    throw badRequest("Format d'image non supporté");
-  }
-
-  const out = await sharp(input, { limitInputPixels: 40_000_000, animated: false })
-    .rotate() // apply EXIF orientation before metadata is stripped
-    .resize(256, 256, { fit: "cover", position: "attention" })
-    .webp({ quality: 82 })
-    .toBuffer();
+  const out = await limited(async () => {
+    let meta: Metadata;
+    try {
+      meta = await sharp(input, { limitInputPixels: MAX_INPUT_PIXELS }).metadata();
+    } catch {
+      throw badRequest("Ce fichier n'est pas une image valide");
+    }
+    if (!meta.format || !ALLOWED_FORMATS.has(meta.format)) {
+      throw badRequest("Format d'image non supporté");
+    }
+    return sharp(input, { limitInputPixels: MAX_INPUT_PIXELS, animated: false })
+      .rotate() // apply EXIF orientation before metadata is stripped
+      .resize(256, 256, { fit: "cover", position: "attention" })
+      .webp({ quality: 82 })
+      .toBuffer();
+  });
 
   await fs.mkdir(AVATAR_DIR, { recursive: true });
   const name = `${crypto.randomUUID()}.webp`;

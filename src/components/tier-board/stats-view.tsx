@@ -1,11 +1,11 @@
 import { cva } from "class-variance-authority";
-import { TIERS, scoreToTier, type Tier } from "@/lib/tiers";
+import { TIERS, formatScore, scoreToTier } from "@/lib/tiers";
 import type { BoardStats, VoterStats } from "@/server/rounds/aggregate";
+import type { TargetStat } from "@/server/rounds/results";
 import { AvatarTile } from "./avatar-tile";
 import { tierBg } from "./tier-row";
-import type { Member } from "./types";
+import type { Member } from "@/lib/types";
 
-export type TargetStat = { targetId: string; mean: number; stddev: number; tier: Tier; distribution: Record<Tier, number> };
 
 const tierChip = cva("inline-flex size-6 items-center justify-center rounded-md border-2 border-ink font-display text-xs font-extrabold text-tier-foreground", {
   variants: { tier: tierBg },
@@ -13,7 +13,7 @@ const tierChip = cva("inline-flex size-6 items-center justify-center rounded-md 
 const dot = cva("size-2.5 rounded-sm", { variants: { tier: tierBg } });
 const segment = cva("h-2 flex-1 rounded-full", { variants: { on: { true: "bg-tier-d", false: "bg-board-edge" } } });
 
-const fmt = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+const fmt = formatScore;
 const signed = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}`;
 
 function Metric({ label, value, hint, children }: { label: string; value: React.ReactNode; hint: string; children?: React.ReactNode }) {

@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 /* ---------- pure rules (unit-tested) ---------- */
 
 export const SWIPE_REPLY_PX = 60; // swipe right this far to reply
 export const SWIPE_MAX_PX = 84; // the bubble never travels further
-export const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = 450;
 export const DOUBLE_TAP_MS = 300;
-export const MOVE_SLOP_PX = 8; // finger jitter that still counts as a tap
+const MOVE_SLOP_PX = 8; // finger jitter that still counts as a tap
 
-export type GestureEnd = "reply" | "tap" | "none";
+type GestureEnd = "reply" | "tap" | "none";
 
 /** What a finished touch means, from how far it moved. */
 export function classifyRelease(dx: number, dy: number, longPressed: boolean): GestureEnd {
@@ -46,8 +46,11 @@ export function useChatGestures(opts: {
   const target = useRef<HTMLDivElement>(null);
   const slide = useRef<HTMLDivElement>(null);
   const hint = useRef<HTMLSpanElement>(null);
+  // latest callbacks, without re-binding the listeners (written after render, not during it)
   const cb = useRef(opts);
-  cb.current = opts;
+  useLayoutEffect(() => {
+    cb.current = opts;
+  });
 
   useEffect(() => {
     const el = target.current;
@@ -70,7 +73,9 @@ export function useChatGestures(opts: {
     };
 
     const down = (e: PointerEvent) => {
-      if (e.pointerType === "mouse") return;
+      // a second finger doesn't start (or restart) a gesture
+      if (e.pointerType === "mouse" || !e.isPrimary) return;
+      clearTimeout(timer);
       tracking = true;
       horizontal = false;
       longPressed = false;

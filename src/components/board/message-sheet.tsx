@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Copy, Reply, Trash2 } from "lucide-react";
 import { cva } from "class-variance-authority";
 import { toast } from "sonner";
 import { REACTION_EMOJIS, type ReactionEmoji } from "@/lib/reactions";
-import type { ReactionSummary } from "./reaction-bar";
+import type { ReactionSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const emojiBtn = cva("flex size-12 items-center justify-center rounded-2xl text-2xl transition-transform active:scale-90", {
@@ -39,7 +39,9 @@ export function MessageSheet({
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
-  close.current = onClose;
+  useLayoutEffect(() => {
+    close.current = onClose;
+  });
 
   useEffect(() => {
     // the sheet is rendered when `open` is true, so its panel exists when this effect runs
@@ -114,7 +116,9 @@ export function MessageSheet({
             type="button"
             className={row}
             onClick={run(() => {
-              navigator.clipboard?.writeText(body).then(
+              // no clipboard API outside a secure context (plain http)
+              if (!navigator.clipboard) return void toast.error("Copie impossible sur cette page");
+              navigator.clipboard.writeText(body).then(
                 () => toast.success("Copié"),
                 () => toast.error("Copie impossible"),
               );

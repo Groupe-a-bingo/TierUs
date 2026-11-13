@@ -1,4 +1,9 @@
-export const APP_TZ = process.env.APP_TIMEZONE ?? "Europe/Paris";
+/**
+ * The community's timezone: the 08:00 draw, day keys, and every time shown.
+ * A constant, not a setting: the browser formats dates too and must agree
+ * with the server (a server-only env var would silently diverge).
+ */
+export const APP_TZ = "Europe/Paris";
 
 export const HOUR_MS = 60 * 60 * 1000;
 /** Local hour of the automatic daily draw (wall clock in APP_TZ, DST included). */

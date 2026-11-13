@@ -1,7 +1,7 @@
 /** Instant placeholder shown while a page renders on the server. */
 export function PageSkeleton({ variant = "list" }: { variant?: "list" | "post" }) {
   return (
-    <div className="flex animate-pulse flex-col gap-4" aria-busy="true" aria-label="Chargement">
+    <div className="flex animate-pulse flex-col gap-4" role="status" aria-busy="true" aria-label="Chargement">
       <div className="h-8 w-40 rounded-xl bg-secondary" />
       {variant === "post" ? (
         <>
