@@ -32,23 +32,6 @@ function useModAction() {
 
 type ModMember = Member & { role: string; status: string };
 
-/**
- * An address split around the "@" in separate elements: Cloudflare's email
- * obfuscation only rewrites a whole address in one text node, and its rewrite
- * (a protected link) breaks React's hydration of the page.
- */
-function Email({ address }: { address: string }) {
-  const at = address.lastIndexOf("@");
-  if (at < 0) return address;
-  return (
-    <>
-      <span>{address.slice(0, at)}</span>
-      <span>@</span>
-      <span>{address.slice(at + 1)}</span>
-    </>
-  );
-}
-
 export function PendingUsers({ users }: { users: (ModMember & { email: string })[] }) {
   const { pending, run } = useModAction();
   if (!users.length) return <EmptyState>Aucune inscription en attente.</EmptyState>;
@@ -61,7 +44,7 @@ export function PendingUsers({ users }: { users: (ModMember & { email: string })
           <div className="min-w-0 flex-1 basis-32">
             <p className="truncate font-medium">{u.name}</p>
             <p className="truncate text-xs text-muted-foreground">
-              <Email address={u.email} />
+              {u.email}
             </p>
             {!u.avatarFileId && <p className="text-xs text-muted-foreground">Pas encore de photo</p>}
           </div>

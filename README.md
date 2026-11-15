@@ -121,4 +121,5 @@ GitHub (Settings → Secrets and variables → Actions, au niveau du repo : les 
 - La commande forcée ignore tout sauf l'id de commit, et `restrict` coupe shell, PTY et forwarding. `deploy` est dans le groupe `docker`, donc équivalent root : c'est cette commande forcée qui empêche une clé fuitée de devenir un shell root.
 - Après une modification de `deploy/tierus-deploy`, le réinstaller (ligne `install` ci-dessus) : le serveur ne l'exécute jamais depuis le repo.
 - Seuls Caddy et l'app doivent être sur `tierus-proxy` : l'app fait confiance à `X-Real-IP`. L'override ne publie aucun port de l'app sur l'hôte (Caddy passe par le réseau) : après une mise à jour de `deploy/docker-compose.override.yml`, le recopier dans `/srv/tierus/`.
+- Si le domaine passe par le proxy Cloudflare (nuage orange), désactiver Scrape Shield → **Email Address Obfuscation** : Cloudflare réécrit les adresses email du HTML en liens protégés, ce qui casse l'hydratation React (/mod affiche les emails des inscriptions).
 - Sauvegarder le volume `tierus_pgdata` et `/srv/tierus/storage`.
