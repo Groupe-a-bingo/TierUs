@@ -31,7 +31,7 @@ function Fact({ emoji, label, voter, value, members }: { emoji: string; label: s
   const m = voter ? members.get(voter.voterId) : undefined;
   if (!voter || !m) return null;
   return (
-    <li className="flex items-center gap-3 rounded-2xl border-2 border-board-edge bg-card p-2.5">
+    <li className="flex min-w-0 items-center gap-3 rounded-2xl border-2 border-board-edge bg-card p-2.5">
       <AvatarTile name={m.name} fileId={m.avatarFileId} size="sm" />
       <div className="min-w-0 flex-1">
         <p className="text-xs text-muted-foreground">
@@ -39,7 +39,7 @@ function Fact({ emoji, label, voter, value, members }: { emoji: string; label: s
         </p>
         <p className="truncate font-display font-bold">{m.name}</p>
       </div>
-      <span className="font-display text-sm font-extrabold">{value(voter)}</span>
+      <span className="shrink-0 font-display text-sm font-extrabold">{value(voter)}</span>
     </li>
   );
 }
@@ -87,7 +87,7 @@ export function StatsView({ stats, targets, members }: { stats: BoardStats; targ
 
       <section className="flex flex-col gap-2">
         <h3 className="font-display text-lg font-extrabold">Les votants</h3>
-        <ul className="grid gap-2 lg:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
           <Fact emoji="🎁" label="Le plus généreux" voter={stats.generous} value={(v) => `E ${fmt(v.mean)}`} members={members} />
           <Fact emoji="🧊" label="Le plus sévère" voter={stats.harsh} value={(v) => `E ${fmt(v.mean)}`} members={members} />
           <Fact emoji="🎯" label="Le plus proche du consensus" voter={stats.aligned} value={(v) => `écart ${fmt(v.rmse)}`} members={members} />

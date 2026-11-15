@@ -247,11 +247,22 @@ html {
 /*
  * Desktop content width = the ratio measured on a 1920×1080 screen:
  * 1152px of content in the 1650px box next to the sidebar (1664px minus the
- * reserved scrollbar gutter) ≈ 69.82 %. Kept as a ratio so every screen
- * width gets the same proportions as 1080p.
+ * reserved scrollbar gutter) ≈ 69.82 %. Kept as a ratio so big screens get
+ * the same proportions as 1080p, but never below 60rem (or the whole box on
+ * smaller laptops): at 1024–1440px the ratio alone left no room for two columns.
  */
 @utility w-content {
-  width: calc(100% * 1152 / 1650);
+  width: max(calc(100% * 1152 / 1650), min(100%, 60rem));
+}
+
+/* sticky side card (/mod ideas): as tall as its content, at most the screen and the column it sits in */
+@utility max-h-sticky {
+  max-height: min(100%, calc(100dvh - 6.5rem));
+}
+
+/* a long list inside a card scrolls on its own instead of stretching the page */
+@utility max-h-list {
+  max-height: 70dvh;
 }
 
 /*

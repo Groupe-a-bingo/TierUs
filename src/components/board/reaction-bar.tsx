@@ -77,7 +77,8 @@ const pickerButton = cva(
 
 const popover = cva("absolute z-30 grid w-max animate-pop-in grid-cols-4 gap-1 rounded-2xl border-2 border-ink bg-popover p-1.5 shadow-pop", {
   // "up": opens above the button so the last message's picker is never cut off
-  variants: { placement: { down: "top-full left-0 mt-2", up: "bottom-full left-0 mb-2" } },
+  // align "end": grows leftwards from the button (the message actions sit at the right edge of the chat)
+  variants: { placement: { down: "top-full mt-2", up: "bottom-full mb-2" }, align: { start: "left-0", end: "right-0" } },
 });
 
 export function ReactionPicker({
@@ -85,11 +86,13 @@ export function ReactionPicker({
   toggle,
   size = "chip",
   placement = "down",
+  align = "start",
 }: {
   available: ReactionEmoji[];
   toggle: (e: ReactionEmoji) => void;
   size?: "chip" | "icon";
   placement?: "down" | "up" | "auto";
+  align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
   const [dir, setDir] = useState<"down" | "up">(placement === "up" ? "up" : "down");
@@ -134,7 +137,7 @@ export function ReactionPicker({
         <SmilePlus className="size-4" />
       </button>
       {open && (
-        <div className={popover({ placement: dir })}>
+        <div className={popover({ placement: dir, align })}>
           {available.map((e) => (
             <button
               key={e}

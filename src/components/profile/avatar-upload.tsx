@@ -62,7 +62,7 @@ export function AvatarUpload({ name, fileId }: { name: string; fileId: string | 
   };
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-wrap items-center gap-4">
       <AvatarTile name={name} fileId={fileId} size="lg" />
       <div className="flex flex-col gap-1">
         <input

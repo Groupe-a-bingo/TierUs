@@ -28,10 +28,10 @@ export default async function IdeasPage() {
   const needsReview = validation && !isModerator(u);
 
   return (
-    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-10">
+    <div className="flex flex-col gap-6 xl:grid xl:grid-cols-2 xl:items-start xl:gap-10">
       <LiveRefresh scope="ideas" initial={version} />
-      <h1 className="hidden text-5xl font-extrabold lg:col-span-2 lg:block">La banque d&apos;idées</h1>
-      <Card className="lg:sticky lg:top-10">
+      <h1 className="hidden text-5xl font-extrabold lg:block xl:col-span-2">La banque d&apos;idées</h1>
+      <Card className="xl:sticky xl:top-10">
         <CardHeader>
           <CardTitle>Proposer une tier list</CardTitle>
           <CardDescription>

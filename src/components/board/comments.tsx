@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useOptimistic, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useOptimistic, useRef, useState } from "react";
 import { CornerDownRight, Reply, Send, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
@@ -30,6 +30,8 @@ const time = (iso: string) => {
 };
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+/** Messages rendered at first, and added by each "older messages" click. */
+const PAGE = 50;
 /** `b` continues `a`'s group: same author, within 5 min, not a reply. */
 const continues = (a: CommentView, b: CommentView) =>
   a.author.id === b.author.id && !b.replyTo && new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() < GROUP_WINDOW_MS;
@@ -43,8 +45,10 @@ const bubble = cva("w-fit max-w-full min-w-0 rounded-2xl bg-secondary px-3 py-2 
 });
 
 
-// mouse: quick icons on hover · touch screens use gestures instead (see useChatGestures)
-const actions = "hidden shrink-0 items-center gap-0.5 can-hover:flex can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-within:opacity-100";
+// mouse: quick icons on hover, floating over the message's top-right corner (they take no room
+// from the bubble, which only had ~50px left in the side panel) · touch screens use gestures instead (see useChatGestures)
+const actions =
+  "hidden items-center gap-0.5 can-hover:pointer-events-none can-hover:absolute can-hover:-top-9 can-hover:right-0 can-hover:z-10 can-hover:flex can-hover:rounded-xl can-hover:border-2 can-hover:border-board-edge can-hover:bg-card can-hover:p-0.5 can-hover:opacity-0 can-hover:shadow-pop-sm can-hover:group-hover:pointer-events-auto can-hover:group-hover:opacity-100 can-hover:focus-within:pointer-events-auto can-hover:focus-within:opacity-100";
 const iconBtn = "flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-90";
 
 function Message({ c, roundId, grouped, onReply, onDelete }: { c: CommentView; roundId: string; grouped: boolean; onReply: () => void; onDelete: () => void }) {
@@ -97,7 +101,7 @@ function Message({ c, roundId, grouped, onReply, onDelete }: { c: CommentView; r
           </div>
           {live && (
             <div className={actions}>
-              <ReactionPicker available={r.available} toggle={r.toggle} size="icon" placement="auto" />
+              <ReactionPicker available={r.available} toggle={r.toggle} size="icon" placement="auto" align="end" />
               <button type="button" aria-label="Répondre" title="Répondre" className={iconBtn} onClick={onReply}>
                 <Reply className="size-4" />
               </button>
@@ -145,6 +149,22 @@ export function Comments({
   const [list, apply] = useOptimistic(comments, (state, op: Op) =>
     op.kind === "add" ? [...state, op.comment] : state.map((c) => (c.id === op.id ? { ...c, deleted: true, body: "" } : c)),
   );
+
+  // long threads: only the latest messages are rendered, older ones on demand
+  const [shown, setShown] = useState(PAGE);
+  const start = Math.max(0, list.length - shown);
+  const fromBottom = useRef<number | null>(null);
+  const showOlder = () => {
+    const el = scroller.current;
+    // desktop scroll box: keep the messages on screen where they are once older ones are added above
+    if (el && el.scrollHeight > el.clientHeight) fromBottom.current = el.scrollHeight - el.scrollTop;
+    setShown((n) => n + PAGE);
+  };
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && fromBottom.current !== null) el.scrollTop = el.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [shown]);
 
   // keep the chat pinned to the latest message (desktop scroll box)
   const count = list.length;
@@ -198,7 +218,7 @@ export function Comments({
     );
 
   return (
-    <section className="flex flex-col gap-4 lg:min-h-0 lg:flex-1">
+    <section className="flex flex-col gap-4 xl:min-h-0 xl:flex-1">
       <h2 className="text-2xl font-extrabold">
         Discussion <span className="text-muted-foreground">{list.filter((c) => !c.deleted).length}</span>
       </h2>
@@ -206,9 +226,15 @@ export function Comments({
       {list.length === 0 && <EmptyState>Lance le débat 👇</EmptyState>}
 
       {/* desktop: the chat scrolls inside the panel, composer stays at the bottom */}
-      <div ref={scroller} data-scroll-box className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:scrollbar-theme lg:scrollbar-track-visible lg:pr-2">
+      <div ref={scroller} data-scroll-box className="xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:scrollbar-theme xl:scrollbar-track-visible xl:pr-2">
+      {start > 0 && (
+        <button type="button" onClick={showOlder} className="mx-auto mb-4 flex rounded-full border-2 border-board-edge px-4 py-1.5 text-sm font-semibold text-muted-foreground hover:border-primary hover:text-foreground active:scale-95">
+          Messages précédents ({start})
+        </button>
+      )}
       <ul className="flex flex-col">
-        {list.map((c, i) => {
+        {list.slice(start).map((c, j) => {
+          const i = start + j;
           const prev = list[i - 1];
           return (
             <Message

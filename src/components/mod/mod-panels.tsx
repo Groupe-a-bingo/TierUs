@@ -32,25 +32,47 @@ function useModAction() {
 
 type ModMember = Member & { role: string; status: string };
 
+/**
+ * An address split around the "@" in separate elements: Cloudflare's email
+ * obfuscation only rewrites a whole address in one text node, and its rewrite
+ * (a protected link) breaks React's hydration of the page.
+ */
+function Email({ address }: { address: string }) {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return address;
+  return (
+    <>
+      <span>{address.slice(0, at)}</span>
+      <span>@</span>
+      <span>{address.slice(at + 1)}</span>
+    </>
+  );
+}
+
 export function PendingUsers({ users }: { users: (ModMember & { email: string })[] }) {
   const { pending, run } = useModAction();
   if (!users.length) return <EmptyState>Aucune inscription en attente.</EmptyState>;
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="flex max-h-list flex-col gap-3 overflow-y-auto pr-1 scrollbar-theme">
       {users.map((u) => (
-        <li key={u.id} className="flex items-center gap-3">
+        // narrow screens: the buttons wrap under the name instead of squeezing it
+        <li key={u.id} className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-32">
             <p className="truncate font-medium">{u.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              <Email address={u.email} />
+            </p>
             {!u.avatarFileId && <p className="text-xs text-muted-foreground">Pas encore de photo</p>}
           </div>
-          <Button size="sm" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}>
-            Valider
-          </Button>
-          <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "rejected"), "Refusé", `Refuser ${u.name} ?`)}>
-            Refuser
-          </Button>
+          <div className="ml-auto flex gap-2">
+            <Button size="sm" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}>
+              Valider
+            </Button>
+            <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "rejected"), "Refusé", `Refuser ${u.name} ?`)}>
+              Refuser
+            </Button>
+          </div>
         </li>
       ))}
     </ul>
@@ -63,7 +85,7 @@ const roleLabel: Record<string, string> = { moderator: "modo", admin: "admin" };
 export function Members({ users, viewerId, viewerIsAdmin }: { users: ModMember[]; viewerId: string; viewerIsAdmin: boolean }) {
   const { pending, run } = useModAction();
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="flex max-h-list flex-col gap-3 overflow-y-auto pr-1 scrollbar-theme">
       {users.map((u) => {
         const canEditRole = viewerIsAdmin && u.status === "active";
         return (
@@ -216,7 +238,7 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
   );
 
   return (
-    <div className="flex flex-col gap-3 lg:h-full">
+    <div className="flex flex-col gap-3 xl:h-full">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer les idées">
         {TABS.map((t) => (
           <Button key={t.tab} size="sm" variant={tab === t.tab ? "default" : "outline"} aria-pressed={tab === t.tab} onClick={() => setTab(t.tab)}>
@@ -225,20 +247,20 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
         ))}
       </div>
       {ideas.length === 0 && <EmptyState>{TABS.find((t) => t.tab === tab)!.empty}</EmptyState>}
-      <ul className="flex flex-col gap-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:scrollbar-theme lg:pr-1">
+      <ul className="flex max-h-list flex-col gap-2 overflow-y-auto pr-1 scrollbar-theme xl:max-h-none xl:min-h-0 xl:flex-1">
         {ideas.map((i) => (
           <li key={i.id} className={ideaRow({ played: tab === "played" })}>
             {editing === i.id ? (
               <IdeaForm editId={i.id} initial={{ title: i.title, description: i.description ?? "" }} onDone={() => setEditing(null)} />
             ) : (
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-start gap-2">
+                <div className="min-w-0 flex-1 basis-48 break-words">
                   <p className="font-medium">{i.title}</p>
                   {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
                   <p className="text-xs text-muted-foreground">par {i.author ?? "compte supprimé"}</p>
                 </div>
                 {tab === "pending" && (
-                  <div className="flex shrink-0 gap-2">
+                  <div className="ml-auto flex shrink-0 gap-2">
                     <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée ajoutée à la banque")}>
                       Valider
                     </Button>
@@ -249,7 +271,7 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
                 )}
                 {tab === "bank" && more(i)}
                 {tab === "rejected" && (
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
                     <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée remise dans la banque")}>
                       Remettre dans la banque
                     </Button>
@@ -323,7 +345,7 @@ export function CreateExtraRound({ ideas, defaultTtl, minTtl, maxTtl }: { ideas:
       <div className="flex items-end gap-2">
         <div className="flex flex-1 flex-col gap-1.5">
           <Label id="extra-ttl">Durée</Label>
-          <Select items={durations} value={ttl} onValueChange={(v) => setTtl(Number(v ?? defaultTtl))}>
+          <Select items={durations} value={ttl} onValueChange={(v) => setTtl(Number(v ?? defaultTtl))} disabled={empty}>
             <SelectTrigger aria-labelledby="extra-ttl">
               <SelectValue />
             </SelectTrigger>
@@ -340,7 +362,6 @@ export function CreateExtraRound({ ideas, defaultTtl, minTtl, maxTtl }: { ideas:
           Créer
         </Button>
       </div>
-      {empty && <p className="text-xs text-muted-foreground">La banque d&apos;idées est vide.</p>}
     </form>
   );
 }

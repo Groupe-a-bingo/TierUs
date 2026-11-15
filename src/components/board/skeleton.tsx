@@ -32,6 +32,7 @@ function Board() {
           <Bar className="h-5 w-20 rounded-full" />
         </div>
         <Bar className="h-8 w-3/4 lg:h-14" />
+        <Bar className="h-8 w-1/2 lg:h-14" />
         <div className="flex gap-2">
           {[0, 1, 2].map((i) => (
             <Bar key={i} className="size-10 rounded-xl" />
@@ -47,7 +48,7 @@ function Board() {
           <Bar className="h-7 w-32" />
           <Bar className="h-4 w-6" />
         </div>
-        <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
+        <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 2xl:grid-cols-3">
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="flex flex-col gap-3 rounded-2xl border-2 border-board-edge bg-card p-4 lg:p-5">
               <div className="flex justify-between">
@@ -71,13 +72,16 @@ function Board() {
 
 function Post() {
   return (
-    <div className="flex flex-col gap-6 lg:grid lg:h-post lg:grid-cols-12 lg:gap-10">
-      <div className="flex flex-col gap-6 lg:col-span-7">
+    <div className="flex flex-col gap-6 xl:grid xl:h-post xl:grid-cols-12 xl:gap-10">
+      <div className="flex flex-col gap-6 xl:col-span-7">
         <div className="flex flex-col gap-3">
           <Bar className="h-4 w-16 lg:hidden" />
           <Bar className="h-4 w-64" />
           <Bar className="h-9 w-3/4 lg:h-12" />
+          <Bar className="h-9 w-1/2 lg:h-12" />
         </div>
+        {/* Moyenne · Tier lists · Stats */}
+        <Bar className="h-12 w-full rounded-2xl" />
         <div className="flex flex-col overflow-hidden rounded-2xl border-2 border-board-edge">
           {TIER_KEYS.map((c) => (
             <div key={c} className="flex h-16 border-b-2 border-board last:border-b-0">
@@ -88,7 +92,7 @@ function Post() {
         </div>
       </div>
       {/* the discussion panel (desktop) */}
-      <div className="hidden flex-col gap-4 rounded-3xl border-2 border-board-edge bg-board p-6 lg:col-span-5 lg:flex">
+      <div className="hidden flex-col gap-4 rounded-3xl border-2 border-board-edge bg-board p-6 xl:col-span-5 xl:flex">
         <div className="flex gap-2">
           {[0, 1, 2, 3].map((i) => (
             <Bar key={i} className="h-8 w-14 rounded-full" />
@@ -107,8 +111,8 @@ function Post() {
 
 function Ideas() {
   return (
-    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-10">
-      <Bar className="hidden h-12 w-80 lg:col-span-2 lg:block" />
+    <div className="flex flex-col gap-6 xl:grid xl:grid-cols-2 xl:items-start xl:gap-10">
+      <Bar className="hidden h-12 w-80 lg:block xl:col-span-2" />
       <CardShell>
         <Bar className="h-6 w-48" />
         <Bar className="h-4 w-full" />
@@ -134,14 +138,14 @@ function Ideas() {
 
 function Mod() {
   return (
-    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
-      <Bar className="h-8 w-40 lg:col-span-2 lg:h-12 lg:w-72" />
+    <div className="flex flex-col gap-4 xl:grid xl:grid-cols-2 xl:items-start xl:gap-6">
+      <Bar className="h-8 w-40 lg:h-12 lg:w-72 xl:col-span-2" />
       <CardShell>
         <Bar className="h-6 w-56" />
         <Bar className="h-4 w-full" />
         <Bar className="h-24 w-full" />
       </CardShell>
-      <CardShell className="lg:row-span-3">
+      <CardShell className="xl:row-span-3">
         <Bar className="h-6 w-24" />
         <div className="flex flex-wrap gap-2">
           {[0, 1, 2, 3].map((i) => (

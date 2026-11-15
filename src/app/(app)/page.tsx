@@ -86,7 +86,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
         {archives.length === 0 ? (
           <EmptyState>{q ? "Aucun résultat." : "Rien pour l'instant : les tier lists arrivent ici à la fin de leur durée."}</EmptyState>
         ) : (
-          <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
+          <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 2xl:grid-cols-3">
             {archives.map((p) => (
               <PostCard key={p.id} post={p} members={members} />
             ))}

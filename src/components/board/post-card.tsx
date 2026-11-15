@@ -9,7 +9,7 @@ import type { Member } from "@/lib/types";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-const statusChip = cva("inline-flex items-center rounded-full border-2 border-ink px-2.5 py-0.5 font-display text-xs font-bold", {
+const statusChip = cva("inline-flex shrink-0 items-center rounded-full border-2 border-ink px-2.5 py-0.5 font-display text-xs font-bold whitespace-nowrap", {
   variants: {
     tone: {
       play: "bg-tier-s text-tier-foreground",
@@ -72,7 +72,7 @@ export function PinnedPost({ post, members }: { post: BoardPost; members: Map<st
     <Link href={postHref(post)} aria-label={postLabel(post)} className="group block animate-rise">
       <article className="flex flex-col gap-4 rounded-3xl border-2 border-ink bg-primary p-5 text-primary-foreground shadow-pop-lg transition-transform duration-100 group-hover:-translate-y-1 group-active:translate-y-1 group-active:shadow-pop lg:gap-6 lg:p-10">
         <div className="flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1 font-display text-xs font-bold tracking-widest uppercase">
+          <span className="flex min-w-0 items-center gap-1 font-display text-xs font-bold tracking-widest uppercase">
             {post.kind === "daily" ? (
               <>
                 <Pin className="size-3.5" /> Tier list du jour
@@ -98,8 +98,8 @@ export function PinnedPost({ post, members }: { post: BoardPost; members: Map<st
           </div>
         </div>
         <Podium post={post} members={members} />
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex flex-wrap items-center gap-1 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="flex min-w-0 flex-1 basis-40 flex-wrap items-center gap-1 text-sm">
             <strong>{post.played}</strong>/{post.total} ont joué · <MessageCircle className="size-4" /> {post.comments} · <Countdown expiresAt={post.expiresAt.toISOString()} />
           </span>
           <span className="flex shrink-0 items-center gap-1 rounded-xl border-2 border-ink bg-card px-4 py-2 font-display font-bold text-foreground lg:px-6 lg:py-3 lg:text-lg">
@@ -124,7 +124,7 @@ export function PostCard({ post, members }: { post: BoardPost; members: Map<stri
           </span>
           <span className={statusChip({ tone: s.tone })}>{s.label}</span>
         </div>
-        <h3 className="font-display text-xl leading-tight font-extrabold">{post.title}</h3>
+        <h3 className="line-clamp-3 font-display text-xl leading-tight font-extrabold break-words">{post.title}</h3>
         <Podium post={post} members={members} />
         <Meta post={post} />
       </article>

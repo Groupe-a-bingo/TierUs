@@ -80,11 +80,11 @@ export default async function ModPage() {
   const isAdmin = me.role === "admin";
 
   return (
-    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
+    <div className="flex flex-col gap-4 xl:grid xl:grid-cols-2 xl:items-start xl:gap-6">
       <LiveRefresh scope="mod" initial={version} />
-      <h1 className="text-2xl font-bold lg:col-span-2 lg:text-5xl lg:font-extrabold">Modération</h1>
+      <h1 className="text-2xl font-bold xl:col-span-2 lg:text-5xl lg:font-extrabold">Modération</h1>
 
-      <Card className="lg:col-start-1">
+      <Card className="xl:col-start-1">
         <CardHeader>
           <CardTitle>Tier lists en cours ({active.length})</CardTitle>
           <CardDescription>
@@ -114,7 +114,7 @@ export default async function ModPage() {
         </CardContent>
       </Card>
 
-      <Card className="lg:col-start-1">
+      <Card className="xl:col-start-1">
         <CardHeader>
           <CardTitle>Inscriptions en attente ({pending.length})</CardTitle>
         </CardHeader>
@@ -124,18 +124,18 @@ export default async function ModPage() {
       </Card>
 
       {/* desktop: the right column, as tall as the left one (never stretches its rows); the list scrolls inside */}
-      <div className={isAdmin ? "lg:col-start-2 lg:row-span-5 lg:row-start-2 lg:self-stretch lg:grid-fill" : "lg:col-start-2 lg:row-span-4 lg:row-start-2 lg:self-stretch lg:grid-fill"}>
-        <Card className="lg:sticky lg:top-10 lg:h-post lg:max-h-full">
+      <div className={isAdmin ? "xl:col-start-2 xl:row-span-5 xl:row-start-2 xl:self-stretch xl:grid-fill" : "xl:col-start-2 xl:row-span-4 xl:row-start-2 xl:self-stretch xl:grid-fill"}>
+        <Card className="xl:sticky xl:top-10 xl:max-h-sticky">
           <CardHeader>
             <CardTitle>Idées</CardTitle>
           </CardHeader>
-          <CardContent className="lg:min-h-0 lg:flex-1">
+          <CardContent className="xl:min-h-0 xl:flex-1">
             <IdeasPanel lists={{ pending: pendingIdeas, bank, played, rejected }} />
           </CardContent>
         </Card>
       </div>
 
-      <Card className="lg:col-start-1">
+      <Card className="xl:col-start-1">
         <CardHeader>
           <CardTitle>Membres ({members.length})</CardTitle>
         </CardHeader>
@@ -145,7 +145,7 @@ export default async function ModPage() {
       </Card>
 
       {isAdmin && (
-        <Card className="lg:col-start-1">
+        <Card className="xl:col-start-1">
           <CardHeader>
             <CardTitle>Réglages</CardTitle>
           </CardHeader>
@@ -155,7 +155,7 @@ export default async function ModPage() {
         </Card>
       )}
 
-      <Card className="lg:col-start-1">
+      <Card className="xl:col-start-1">
         <CardHeader>
           <CardTitle>Journal</CardTitle>
         </CardHeader>

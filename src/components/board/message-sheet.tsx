@@ -38,6 +38,7 @@ export function MessageSheet({
   onDelete?: () => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const pressedBackdrop = useRef(false);
   const close = useRef(onClose);
   useLayoutEffect(() => {
     close.current = onClose;
@@ -90,8 +91,19 @@ export function MessageSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end" role="dialog" aria-modal="true" aria-labelledby="message-sheet-title">
-      {/* backdrop: pointer only, the keyboard closes with Escape */}
-      <button type="button" tabIndex={-1} aria-hidden className="absolute inset-0 bg-background/70 backdrop-blur-sm" onClick={onClose} />
+      {/* backdrop: pointer only, the keyboard closes with Escape. Only a press that starts on it
+          closes the sheet: the long press that opened it ends here, and that release can come with a click */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden
+        className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+        onPointerDown={() => (pressedBackdrop.current = true)}
+        onClick={() => {
+          if (pressedBackdrop.current) onClose();
+          pressedBackdrop.current = false;
+        }}
+      />
       <div ref={panel} className="relative flex animate-rise flex-col gap-3 rounded-t-3xl border-t-2 border-ink bg-card p-4 pb-safe shadow-pop-lg">
         <span className="mx-auto h-1 w-10 rounded-full bg-board-edge" aria-hidden />
         <h2 id="message-sheet-title" className="sr-only">

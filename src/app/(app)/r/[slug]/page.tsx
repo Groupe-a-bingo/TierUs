@@ -92,12 +92,12 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
   const members = [...targets, ...(await membersById(extraIds)).values()];
 
   return (
-    <div className="flex flex-col gap-6 lg:grid lg:h-post lg:grid-cols-12 lg:gap-10">
+    <div className="flex flex-col gap-6 xl:grid xl:h-post xl:grid-cols-12 xl:gap-10">
       {/* desktop: the page itself never scrolls, each column scrolls on its own */}
       <LiveRefresh roundId={round.id} initial={version} />
 
       {/* while playing, the editor gets the full width on desktop */}
-      <div className={showEditor ? "flex flex-col gap-6 lg:col-span-12 lg:min-h-0 lg:overflow-y-auto lg:scrollbar-theme lg:pr-2 lg:pb-3" : "flex flex-col gap-6 lg:col-span-7 lg:min-h-0 lg:overflow-y-auto lg:scrollbar-theme lg:pr-2 lg:pb-3"}>
+      <div className={showEditor ? "flex flex-col gap-6 xl:col-span-12 xl:min-h-0 xl:overflow-y-auto xl:scrollbar-theme xl:pr-2 xl:pb-3" : "flex flex-col gap-6 xl:col-span-7 xl:min-h-0 xl:overflow-y-auto xl:scrollbar-theme xl:pr-2 xl:pb-3"}>
       <header className="flex flex-col gap-3">
         <Link href="/" className="flex w-fit items-center gap-1 rounded-full py-1 pr-3 text-sm font-semibold text-muted-foreground active:scale-95 lg:hidden">
           <ArrowLeft className="size-4" /> Board
@@ -145,14 +145,14 @@ export default async function RoundPage({ params, searchParams }: { params: Prom
       </div>
 
       {/* Desktop: the thread lives in a sticky side panel, like a Discord forum post */}
-      <aside className={showEditor && !thread ? "hidden" : "flex flex-col gap-4 lg:col-span-5 lg:min-h-0 lg:overflow-hidden lg:rounded-3xl lg:border-2 lg:border-board-edge lg:bg-board lg:p-6"}>
+      <aside className={showEditor && !thread ? "hidden" : "flex flex-col gap-4 xl:col-span-5 xl:min-h-0 xl:overflow-hidden xl:rounded-3xl xl:border-2 xl:border-board-edge xl:bg-board xl:p-6"}>
         {thread ? (
           <>
             <ReactionBar roundId={round.id} reactions={thread[1]} />
             <Comments roundId={round.id} comments={thread[0]} me={{ id: u.id, name: u.name, avatarFileId: u.avatarFileId }} />
           </>
         ) : (
-          <div className="hidden flex-col items-center gap-3 py-16 text-center lg:flex">
+          <div className="hidden flex-col items-center gap-3 py-16 text-center xl:flex">
             <p className="text-5xl">🔒</p>
             <h2 className="text-2xl font-extrabold">Discussion verrouillée</h2>
             <p className="text-muted-foreground">Fais ta tier list pour voir les résultats et ce que les autres en pensent.</p>
