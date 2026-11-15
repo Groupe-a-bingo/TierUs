@@ -146,28 +146,29 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /*
+   * Background (subtle grain + warm vignette) on the root. The scrollbar
+   * gutter reserved by `scrollbar-gutter: stable` only gets the root's
+   * background *colour*, never its images: so the colour is the average tint
+   * of the grained page (#1a1a18), while the page itself paints a solid
+   * --background layer under the grain. Gutter and page then match.
+   * No `background-attachment: fixed`: it forced a full repaint on every scroll frame.
+   */
   html {
     @apply font-sans;
     -webkit-tap-highlight-color: transparent;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  /*
-   * Subtle grain + warm vignette, on its own fixed GPU layer.
-   * (A `background-attachment: fixed` on body forced a full repaint on every
-   * scroll frame: ~10x more raster work and visible scroll lag on desktop.)
-   */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    transform: translateZ(0);
+    scrollbar-color: var(--board-edge) transparent;
+    background-color: #1a1a18;
     background-image:
       radial-gradient(120% 60% at 50% -10%, #2a2922 0%, transparent 60%),
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"),
+      linear-gradient(var(--background), var(--background));
+    background-size: 100% 100vh, auto, auto;
+    background-repeat: repeat-x, repeat, no-repeat;
+  }
+  /* transparent: the root's background shows through (see html above) */
+  body {
+    @apply text-foreground;
   }
   h1, h2, h3 {
     @apply font-display tracking-tight;
@@ -246,11 +247,17 @@ html {
 /*
  * Desktop content width = the ratio measured on a 1920×1080 screen:
  * 1152px of content in the 1650px box next to the sidebar (1664px minus the
- * reserved scrollbar gutter) ≈ 69.82 %. Kept as a ratio so every screen
- * width gets the same proportions as 1080p.
+ * reserved scrollbar gutter) ≈ 69.82 %. Kept as a ratio so big screens get
+ * the same proportions as 1080p, but never below 60rem (or the whole box on
+ * smaller laptops): at 1024–1440px the ratio alone left no room for two columns.
  */
 @utility w-content {
-  width: calc(100% * 1152 / 1650);
+  width: max(calc(100% * 1152 / 1650), min(100%, 60rem));
+}
+
+/* a long list inside a card scrolls on its own instead of stretching the page */
+@utility max-h-list {
+  max-height: 70dvh;
 }
 
 /* desktop post page: fills the viewport exactly (main has pt-10 + pb-16) */

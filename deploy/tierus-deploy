@@ -77,10 +77,11 @@ for _ in $(seq 60); do
     "fetch('http://127.0.0.1:3010/').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))" 2>/dev/null; then
     echo "$sha" > .deployed
     echo "${new_time:-0}" > .deployed-time
-    # Old images of this app, then untagged leftovers. Volumes are never touched.
+    # Old images of this app, then its own untagged leftovers (the label is
+    # set by our image build): other stacks on this host are never touched.
     docker images "$IMAGE" --format '{{.Repository}}:{{.Tag}}' \
       | grep -vxF "$IMAGE:$sha" | xargs -r docker rmi >/dev/null 2>&1 || true
-    docker image prune -f >/dev/null
+    docker image prune -f --filter "label=dev.tierus.commit-time" >/dev/null
     echo "deployed $sha"
     exit 0
   fi

@@ -15,6 +15,13 @@
       "when": 1794529040851,
       "tag": "0001_idea_validation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794584803418,
+      "tag": "0002_review_fixes",
+      "breakpoints": true
     }
   ]
 }

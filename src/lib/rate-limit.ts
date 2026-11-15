@@ -5,7 +5,7 @@ import { RateLimiterPostgres, RateLimiterRes } from "rate-limiter-flexible";
 import { pool } from "@/db";
 import { tooManyRequests } from "@/lib/errors";
 
-type LimitName = keyof typeof LIMITS;
+export type LimitName = keyof typeof LIMITS;
 
 /** points per duration (seconds) — see plan "Sécurité". */
 const LIMITS = {
@@ -13,6 +13,9 @@ const LIMITS = {
   // a member editing or deleting their own ideas
   ideaEdit: { points: 30, duration: 60 * 60 },
   comment: { points: 10, duration: 60 },
+  commentDelete: { points: 30, duration: 60 },
+  // live polling: one tab polls every 2 s (30/min), leave room for a few tabs
+  live: { points: 120, duration: 60 },
   reaction: { points: 60, duration: 60 },
   upload: { points: 5, duration: 60 * 60 },
   submit: { points: 10, duration: 60 },
@@ -112,11 +115,12 @@ export async function record(name: LimitName, key: string): Promise<void> {
 }
 
 /**
- * Consume one point for `name` keyed on the user (if given) and always
- * one point on the global per-IP limiter. Throws HttpError(429).
+ * Consume one point for `name` keyed on the user (if given) and, for
+ * mutations, one point on the global per-IP limiter. Throws HttpError(429).
+ * Reads (live polling) skip the per-IP budget, meant for mutations.
  */
-export async function rateLimit(name: LimitName, userId?: string) {
+export async function rateLimit(name: LimitName, userId?: string, { perIp = true } = {}) {
   const ip = await clientIp();
-  await consume("ip", ip);
+  if (perIp) await consume("ip", ip);
   await consume(name, userId ?? `ip:${ip}`);
 }

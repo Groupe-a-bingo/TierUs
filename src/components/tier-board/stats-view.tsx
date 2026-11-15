@@ -1,11 +1,11 @@
 import { cva } from "class-variance-authority";
-import { TIERS, scoreToTier, type Tier } from "@/lib/tiers";
+import { TIERS, formatScore, scoreToTier } from "@/lib/tiers";
 import type { BoardStats, VoterStats } from "@/server/rounds/aggregate";
+import type { TargetStat } from "@/server/rounds/results";
 import { AvatarTile } from "./avatar-tile";
 import { tierBg } from "./tier-row";
-import type { Member } from "./types";
+import type { Member } from "@/lib/types";
 
-export type TargetStat = { targetId: string; mean: number; stddev: number; tier: Tier; distribution: Record<Tier, number> };
 
 const tierChip = cva("inline-flex size-6 items-center justify-center rounded-md border-2 border-ink font-display text-xs font-extrabold text-tier-foreground", {
   variants: { tier: tierBg },
@@ -13,7 +13,7 @@ const tierChip = cva("inline-flex size-6 items-center justify-center rounded-md 
 const dot = cva("size-2.5 rounded-sm", { variants: { tier: tierBg } });
 const segment = cva("h-2 flex-1 rounded-full", { variants: { on: { true: "bg-tier-d", false: "bg-board-edge" } } });
 
-const fmt = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+const fmt = formatScore;
 const signed = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}`;
 
 function Metric({ label, value, hint, children }: { label: string; value: React.ReactNode; hint: string; children?: React.ReactNode }) {
@@ -31,7 +31,7 @@ function Fact({ emoji, label, voter, value, members }: { emoji: string; label: s
   const m = voter ? members.get(voter.voterId) : undefined;
   if (!voter || !m) return null;
   return (
-    <li className="flex items-center gap-3 rounded-2xl border-2 border-board-edge bg-card p-2.5">
+    <li className="flex min-w-0 items-center gap-3 rounded-2xl border-2 border-board-edge bg-card p-2.5">
       <AvatarTile name={m.name} fileId={m.avatarFileId} size="sm" />
       <div className="min-w-0 flex-1">
         <p className="text-xs text-muted-foreground">
@@ -39,7 +39,7 @@ function Fact({ emoji, label, voter, value, members }: { emoji: string; label: s
         </p>
         <p className="truncate font-display font-bold">{m.name}</p>
       </div>
-      <span className="font-display text-sm font-extrabold">{value(voter)}</span>
+      <span className="shrink-0 font-display text-sm font-extrabold">{value(voter)}</span>
     </li>
   );
 }
@@ -87,7 +87,7 @@ export function StatsView({ stats, targets, members }: { stats: BoardStats; targ
 
       <section className="flex flex-col gap-2">
         <h3 className="font-display text-lg font-extrabold">Les votants</h3>
-        <ul className="grid gap-2 lg:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
           <Fact emoji="🎁" label="Le plus généreux" voter={stats.generous} value={(v) => `E ${fmt(v.mean)}`} members={members} />
           <Fact emoji="🧊" label="Le plus sévère" voter={stats.harsh} value={(v) => `E ${fmt(v.mean)}`} members={members} />
           <Fact emoji="🎯" label="Le plus proche du consensus" voter={stats.aligned} value={(v) => `écart ${fmt(v.rmse)}`} members={members} />

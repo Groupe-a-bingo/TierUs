@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { HOUR_MS } from "@/lib/dates";
 import { drawDaily, drawExtra } from "@/server/rounds/draw";
-import { getProgress, getRoundIdByDate, getTargets, hasSubmitted } from "@/server/rounds/queries";
+import { getProgress, getDailyRoundId, getTargets, hasSubmitted } from "@/server/rounds/queries";
 import { canSeeResults } from "@/server/rounds/visibility";
 import { submitTierList } from "@/server/rounds/submit";
 import { listBoard } from "@/server/board";
@@ -83,8 +83,8 @@ describe("board", () => {
     const extra = await drawExtra(24, new Date("2026-05-05T05:00:00Z"));
     const daily = await drawDaily(new Date("2026-05-05T06:00:00Z"));
     if (daily.status !== "created" || extra.status !== "created") throw new Error("setup");
-    expect(await getRoundIdByDate("2026-05-05")).toBe(daily.roundId);
-    expect(await getRoundIdByDate("2026-05-06")).toBeNull();
+    expect(await getDailyRoundId("2026-05-05")).toBe(daily.roundId);
+    expect(await getDailyRoundId("2026-05-06")).toBeNull();
   });
 
   it("regression: 'X/Y ont joué' only counts members who actually played", async () => {

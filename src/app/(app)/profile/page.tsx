@@ -26,12 +26,9 @@ export default async function ProfilePage() {
           <div className="flex flex-col gap-4">
           <AvatarUpload name={u.name} fileId={u.avatarFileId} />
           <NameForm initial={u.name} />
-          <div className="flex flex-col gap-0.5">
-            <p className="flex items-center gap-2 text-lg font-semibold text-streak">
-              <Trophy className="size-6" aria-hidden /> {count} tier list{count > 1 ? "s" : ""} répondue{count > 1 ? "s" : ""} à temps
-            </p>
-            <p className="text-sm text-muted-foreground">Chaque tier list compte une fois si tu y réponds avant son archivage. Une journée manquée ne fait rien perdre.</p>
-          </div>
+          <p className="flex items-center gap-2 text-lg font-semibold text-streak">
+            <Trophy className="size-6" aria-hidden /> {count} tier list{count > 1 ? "s" : ""} répondue{count > 1 ? "s" : ""} à temps
+          </p>
           </div>
         </CardContent>
       </Card>

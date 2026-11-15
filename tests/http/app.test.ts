@@ -3,16 +3,17 @@
  * Env: E2E_BASE_URL (the app), TEST_DATABASE_URL (same DB the app uses, to
  * validate accounts), and the app must run with CLIENT_IP_HEADER=x-test-ip.
  * The suite writes to that database (sign-ups, status changes): like the
- * integration suite, it refuses any database whose name doesn't contain "test".
+ * integration suite, it refuses anything but a local database named "*_test".
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import sharp from "sharp";
+import { assertTestDatabase } from "../support/test-db";
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 if (!TEST_DB_URL) throw new Error("TEST_DATABASE_URL is not set (HTTP tests need a dedicated test database)");
+assertTestDatabase(TEST_DB_URL);
 const testDbName = new URL(TEST_DB_URL).pathname.slice(1);
-if (!/test/i.test(testDbName)) throw new Error(`Refusing to run HTTP tests on database "${testDbName}" (name must contain "test")`);
 // the app under test must use that same database, never a real one
 const appDb = process.env.DATABASE_URL;
 if (appDb && new URL(appDb).pathname.slice(1) !== testDbName) {
@@ -192,6 +193,19 @@ describe("pages", () => {
     const res = await call("/api/live", { client: member });
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
+    expect((await res.json()).v).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("live scopes: anyone active gets their ideas' version, only moderators get /mod's", async () => {
+    const ideas = await call("/api/live?scope=ideas", { client: member });
+    expect(ideas.status).toBe(200);
+    expect((await ideas.json()).v).toMatch(/^[0-9a-f]{32}$/);
+    expect((await call("/api/live?scope=mod", { client: member })).status).toBe(403);
+
+    const mod = await signUp("Modo live");
+    await pool.query(`update "user" set status = 'active', role = 'moderator' where email = $1`, [mod.email]);
+    const res = await call("/api/live?scope=mod", { client: mod });
+    expect(res.status).toBe(200);
     expect((await res.json()).v).toMatch(/^[0-9a-f]{32}$/);
   });
 });

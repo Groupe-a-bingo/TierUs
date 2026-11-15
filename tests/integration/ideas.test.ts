@@ -2,10 +2,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
+import { createIdea, editIdea, removeIdea, reviewIdea, requeueIdea } from "@/server/ideas";
 import { getIdeaValidation, setIdeaValidation } from "@/server/settings";
 import { rerollRound } from "@/server/rounds/draw";
-import { drawActive, makeUser, resetDb } from "../support/factories";
+import { drawActive, makeUser, resetDb, waitUntilBlockedOnLock } from "../support/factories";
 
 beforeEach(resetDb);
 
@@ -99,7 +99,7 @@ describe("idea validation", () => {
     await ideaBy(a.id, "En attente", "pending");
     const res = await drawActive();
     if (res.status !== "created") throw new Error(res.status);
-    expect(await rerollRound(res.roundId)).toMatchObject({ ok: false });
+    await expect(rerollRound(res.roundId)).rejects.toMatchObject({ status: 400 });
   });
 
   it("refusing marks the idea; its author can fix it and it goes back to the queue", async () => {
@@ -136,12 +136,17 @@ describe("idea validation", () => {
     expect(await editIdea(as(a), idea.id, { title: "Tout autre chose", description: null })).toEqual({ status: "pending", previous: "approved" });
   });
 
-  it("even with validation off, a member's fixed refused idea goes back to a moderator, never straight to the bank", async () => {
+  it("a member's fixed refused idea goes back to a moderator while validation is on, straight to the bank when it's off", async () => {
+    const admin = await makeUser({ role: "admin" });
     const a = await makeUser();
-    expect(await getIdeaValidation()).toBe(false);
-    const idea = await ideaBy(a.id, "Bof", "rejected");
-    expect(await editIdea(as(a), idea.id, { title: "Bof.", description: null })).toEqual({ status: "pending", previous: "rejected" });
-    expect((await drawActive()).status).toBe("empty_bank");
+    await setIdeaValidation(true, admin.id);
+    const queued = await ideaBy(a.id, "Bof", "rejected");
+    expect(await editIdea(as(a), queued.id, { title: "Bof.", description: null })).toEqual({ status: "pending", previous: "rejected" });
+    await setIdeaValidation(false, admin.id);
+    const banked = await ideaBy(a.id, "Nul", "rejected");
+    // nothing may wait for a validation that is off
+    expect(await editIdea(as(a), banked.id, { title: "Moins nul", description: null })).toEqual({ status: "approved", previous: "rejected" });
+    expect((await drawActive()).status).toBe("created");
   });
 
   it("a moderator can't approve wording they didn't see (author edited it meanwhile)", async () => {
@@ -168,6 +173,32 @@ describe("idea validation", () => {
     await expect(review(idea.id, "approved")).rejects.toMatchObject({ status: 400 });
     await expect(review(idea.id, "rejected")).rejects.toMatchObject({ status: 400 });
     await expect(reviewIdea(crypto.randomUUID(), "approved", { title: "x", description: null })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("a moderator can send a bank or refused idea back to validation, not a played one", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const mod = await makeUser({ role: "moderator" });
+    const a = await makeUser();
+    await setIdeaValidation(true, admin.id);
+    const idea = await ideaBy(a.id, "Trop vague");
+    expect(await requeueIdea(idea.id, mod.id)).toMatchObject({ previous: "approved" });
+    expect((await get(idea.id)).status).toBe("pending");
+    expect((await drawActive()).status).toBe("empty_bank");
+    await expect(requeueIdea(idea.id, mod.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("déjà en validation") });
+    await review(idea.id, "rejected");
+    expect(await requeueIdea(idea.id, mod.id)).toMatchObject({ previous: "rejected" });
+    await review(idea.id, "approved");
+    expect((await drawActive()).status).toBe("created");
+    await expect(requeueIdea(idea.id, mod.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("jouée") });
+    expect((await get(idea.id)).status).toBe("approved");
+    await expect(requeueIdea(crypto.randomUUID(), mod.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("nothing goes back to validation while validation is off", async () => {
+    const mod = await makeUser({ role: "moderator" });
+    const idea = await ideaBy(mod.id);
+    await expect(requeueIdea(idea.id, mod.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("Active la validation") });
+    expect((await get(idea.id)).status).toBe("approved");
   });
 
   it("turning validation off releases the waiting ideas into the bank (refused ones stay refused)", async () => {
@@ -221,8 +252,9 @@ describe("idea validation setting", () => {
       await tx.insert(schema.ideas).values({ title: "Pendant la bascule", authorId: a.id, status: "pending" });
     });
     await read;
-    const off = setIdeaValidation(false, admin.id); // waits for the member's transaction
-    await new Promise((r) => setTimeout(r, 100));
+    const off = setIdeaValidation(false, admin.id);
+    // the switch really waits for the member's transaction (not just "probably" after a sleep)
+    await waitUntilBlockedOnLock();
     release();
     await write;
     expect(await off).toEqual({ approved: 1 });

@@ -10,6 +10,24 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { authClient } from "@/lib/auth-client";
 import { Wordmark } from "@/components/board/wordmark";
+import { NAME_MAX, NAME_MIN } from "@/lib/limits";
+
+/** Better Auth's error codes, in French (its messages are in English). */
+const AUTH_ERRORS: Record<string, string> = {
+  INVALID_EMAIL_OR_PASSWORD: "Email ou mot de passe incorrect",
+  USER_ALREADY_EXISTS: "Impossible de créer ce compte avec cet email",
+  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "Impossible de créer ce compte avec cet email",
+  PASSWORD_TOO_SHORT: "Mot de passe trop court (10 caractères minimum)",
+  PASSWORD_TOO_LONG: "Mot de passe trop long",
+  INVALID_EMAIL: "Email invalide",
+};
+
+function authErrorMessage(err: { status: number; code?: string; message?: string }) {
+  if (err.status === 429) return "Trop de tentatives, réessaie dans une minute";
+  if (err.code && AUTH_ERRORS[err.code]) return AUTH_ERRORS[err.code];
+  // our own hooks answer in French already (pseudo rule, sign-in lock)
+  return err.status === 400 && err.message ? err.message : "Connexion impossible, réessaie";
+}
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
@@ -19,16 +37,16 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     startTransition(async () => {
-      const res =
-        mode === "signup"
-          ? await authClient.signUp.email({ name: form.name.trim(), email: form.email.trim(), password: form.password })
-          : await authClient.signIn.email({ email: form.email.trim(), password: form.password });
+      const res = await (mode === "signup"
+        ? authClient.signUp.email({ name: form.name.trim(), email: form.email.trim(), password: form.password })
+        : authClient.signIn.email({ email: form.email.trim(), password: form.password })
+      ).catch(() => null);
+      if (!res) {
+        toast.error("Connexion perdue : vérifie ton réseau et réessaie");
+        return;
+      }
       if (res.error) {
-        toast.error(
-          res.error.status === 429
-            ? "Trop de tentatives, réessaie dans une minute"
-            : res.error.message ?? "Identifiants invalides",
-        );
+        toast.error(authErrorMessage(res.error));
         return;
       }
       router.replace("/");
@@ -42,9 +60,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     <main className="flex min-h-dvh flex-col items-center justify-center gap-8 p-4 lg:flex-row lg:gap-24 lg:p-12">
       <div className="flex animate-rise flex-col items-center gap-3 text-center lg:max-w-lg lg:items-start lg:gap-6 lg:text-left">
         <Wordmark />
-        <p className="font-display text-lg font-semibold text-muted-foreground lg:hidden">La tier list du jour, entre potes.</p>
-        <p className="hidden font-display text-6xl leading-none font-extrabold lg:block">La tier list du jour, entre potes.</p>
-        <p className="hidden text-lg text-muted-foreground lg:block">Chaque jour un thème tiré au hasard. Tu classes la commu de S à F, on révèle la moyenne quand tout le monde a joué.</p>
+        <p className="font-display text-lg font-semibold text-muted-foreground lg:text-6xl lg:leading-none lg:font-extrabold lg:text-foreground">La tier list du jour, entre potes.</p>
+        <p className="hidden text-lg text-muted-foreground lg:block">Chaque jour un thème tiré au hasard. Tu classes la commu de S à F, et tu découvres la moyenne et les classements des autres dès que tu as joué.</p>
       </div>
       <Card className="w-full max-w-sm">
         <CardHeader>
@@ -60,7 +77,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
             {mode === "signup" && (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="name">Pseudo</Label>
-                <Input id="name" required minLength={2} maxLength={32} autoComplete="nickname" value={form.name} onChange={set("name")} />
+                <Input id="name" required minLength={NAME_MIN} maxLength={NAME_MAX} autoComplete="nickname" value={form.name} onChange={set("name")} />
               </div>
             )}
             <div className="flex flex-col gap-2">

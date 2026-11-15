@@ -4,7 +4,8 @@ const isDev = process.env.NODE_ENV !== "production";
 
 /** Per-request nonce-based CSP + security headers. */
 export function middleware(req: NextRequest) {
-  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  // 128 random bits (Web Crypto: the middleware may run on the Edge runtime, without Buffer)
+  const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
 
   const csp = [
     `default-src 'self'`,
@@ -24,7 +25,7 @@ export function middleware(req: NextRequest) {
   ].join("; ");
 
   const reqHeaders = new Headers(req.headers);
-  reqHeaders.set("x-nonce", nonce);
+  // Next reads the nonce from the request's CSP and puts it on its own scripts
   reqHeaders.set("content-security-policy", csp);
 
   const res = NextResponse.next({ request: { headers: reqHeaders } });

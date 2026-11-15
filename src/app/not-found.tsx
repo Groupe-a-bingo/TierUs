@@ -7,7 +7,7 @@ export default function NotFound() {
       <Wordmark />
       <p className="font-display text-7xl font-extrabold text-tier-f">F</p>
       <h1 className="text-3xl font-extrabold">Page introuvable</h1>
-      <p className="text-muted-foreground">Cette tier list n&apos;existe pas (ou plus).</p>
+      <p className="text-muted-foreground">Cette page n&apos;existe pas (ou plus).</p>
       <Link href="/" className="rounded-xl border-2 border-ink bg-primary px-5 py-3 font-display font-bold text-primary-foreground shadow-pop active:translate-y-1 active:shadow-none">
         Retour au board
       </Link>

@@ -19,16 +19,16 @@ if (isProd) {
   }
 }
 
-if (problems.length) {
-  throw new Error(`Invalid environment (.env):\n- ${problems.join("\n- ")}`);
+// Per-IP rate limits trust the client IP header: without a proxy that sets it,
+// anyone reaching the app directly can forge X-Forwarded-For (and Better Auth
+// falls back to one shared bucket for a multi-hop X-Forwarded-For, letting
+// anyone lock every sign-in out).
+if (isProd && process.env.NEXT_PHASE !== "phase-production-build" && !process.env.CLIENT_IP_HEADER?.trim() && !process.env.TRUSTED_PROXIES?.trim()) {
+  problems.push("CLIENT_IP_HEADER (or TRUSTED_PROXIES) is required in production: set it to the header your proxy writes the client IP to (e.g. x-real-ip)");
 }
 
-// Per-IP rate limits trust the client IP header: without a proxy that sets it,
-// anyone reaching the app directly can forge X-Forwarded-For.
-if (isProd && process.env.NEXT_PHASE !== "phase-production-build" && !process.env.CLIENT_IP_HEADER?.trim() && !process.env.TRUSTED_PROXIES?.trim()) {
-  console.warn(
-    "[env] CLIENT_IP_HEADER is empty: per-IP rate limits rely on X-Forwarded-For. Serve the app only through your proxy (APP_BIND=127.0.0.1) and set CLIENT_IP_HEADER.",
-  );
+if (problems.length) {
+  throw new Error(`Invalid environment (.env):\n- ${problems.join("\n- ")}`);
 }
 
 export {};

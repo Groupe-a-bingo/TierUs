@@ -12,3 +12,6 @@ export const isTier = (v: unknown): v is Tier => typeof v === "string" && (TIERS
 
 export const emptyRows = (): Record<Tier, string[]> =>
   Object.fromEntries(TIERS.map((t) => [t, [] as string[]])) as Record<Tier, string[]>;
+
+/** A score or mean as shown to members: French decimals, at most 2 ("3,45"). */
+export const formatScore = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });

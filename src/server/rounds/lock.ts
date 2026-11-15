@@ -17,3 +17,12 @@ const MEMBERSHIP_LOCK_KEY = 727_274_001;
 export async function lockMembership(tx: Tx): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${sql.raw(String(MEMBERSHIP_LOCK_KEY))})`);
 }
+
+/**
+ * Shared flavour of the same lock, for answers: many submissions run at once,
+ * but none overlaps a draw or a membership change, so the targets an answer
+ * is checked against can't change before it commits.
+ */
+export async function lockMembershipShared(tx: Tx): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock_shared(${sql.raw(String(MEMBERSHIP_LOCK_KEY))})`);
+}

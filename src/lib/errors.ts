@@ -1,3 +1,8 @@
+import { z } from "zod";
+
+// validation messages that reach users (parseInput) are in French
+z.config(z.locales.fr());
+
 export class HttpError extends Error {
   constructor(
     public status: number,
@@ -43,6 +48,13 @@ export function errorResponse(err: unknown): Response {
   return Response.json({ error: "Erreur serveur" }, { status: 500 });
 }
 
+/** Validate a server action / route input; the first issue becomes a 400 message. */
+export function parseInput<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message ?? "Requête invalide");
+  return parsed.data;
+}
+
 /** Result type for server actions: never leak stack traces to the client. */
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -52,7 +64,7 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
     return { ok: true, data };
   } catch (err) {
     if (err instanceof HttpError) return { ok: false, error: err.message };
-    if (err instanceof Error && err.name === "ZodError") return { ok: false, error: "Requête invalide" };
+    if (err instanceof z.ZodError) return { ok: false, error: "Requête invalide" };
     // Next.js redirect()/notFound() must propagate
     if (err && typeof err === "object" && "digest" in err) throw err;
     console.error(err);

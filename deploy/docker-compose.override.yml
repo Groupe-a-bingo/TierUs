@@ -4,6 +4,9 @@
 # Only Caddy and this app may join tierus-proxy: the app trusts X-Real-IP.
 services:
   app:
+    # Caddy reaches the app over tierus-proxy: no port on the host at all
+    # (a local process could otherwise forge X-Real-IP on 127.0.0.1:3010).
+    ports: !reset []
     networks:
       default: {}
       tierus-proxy:

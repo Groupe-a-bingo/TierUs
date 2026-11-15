@@ -19,7 +19,7 @@ export type Aggregate = {
   voters: number;
 };
 
-const emptyDistribution = (): Record<Tier, number> => ({ S: 0, A: 0, B: 0, C: 0, D: 0, F: 0 });
+const emptyDistribution = () => Object.fromEntries(TIERS.map((t) => [t, 0])) as Record<Tier, number>;
 
 /**
  * Average tier list. Every vote counts, including voting for yourself.
@@ -52,7 +52,8 @@ export function aggregate(votes: Vote[]): Aggregate {
     });
   }
 
-  results.sort((a, b) => b.mean - a.mean || a.targetId.localeCompare(b.targetId));
+  // ties by member id in code point order: the same order as the board's SQL podium (collate "C")
+  results.sort((a, b) => b.mean - a.mean || (a.targetId < b.targetId ? -1 : a.targetId > b.targetId ? 1 : 0));
 
   const rows = Object.fromEntries(TIERS.map((t) => [t, [] as TargetResult[]])) as Record<Tier, TargetResult[]>;
   for (const r of results) rows[r.tier].push(r);
@@ -113,7 +114,11 @@ export function computeStats(votes: Vote[]): BoardStats {
   const variance = avg(scores.map((s) => (s - mean) ** 2));
 
   const byTarget = new Map<string, number[]>();
-  for (const v of votes) byTarget.set(v.targetId, [...(byTarget.get(v.targetId) ?? []), TIER_SCORE[v.tier]]);
+  for (const v of votes) {
+    const xs = byTarget.get(v.targetId);
+    if (xs) xs.push(TIER_SCORE[v.tier]);
+    else byTarget.set(v.targetId, [TIER_SCORE[v.tier]]);
+  }
   const targetMean = new Map([...byTarget].map(([id, xs]) => [id, avg(xs)]));
   const spreads = [...byTarget.values()].filter((xs) => xs.length >= 2).map((xs) => {
     const m = avg(xs);
@@ -124,12 +129,23 @@ export function computeStats(votes: Vote[]): BoardStats {
   const consensus = spreads.length ? Math.round((1 - avgSpread / 2.5) * 100) : 100;
 
   const byVoter = new Map<string, Vote[]>();
-  for (const v of votes) byVoter.set(v.voterId, [...(byVoter.get(v.voterId) ?? []), v]);
+  // what the others gave each member (self-bias)
+  const fromOthers = new Map<string, number[]>();
+  for (const v of votes) {
+    const mine = byVoter.get(v.voterId);
+    if (mine) mine.push(v);
+    else byVoter.set(v.voterId, [v]);
+    if (v.voterId !== v.targetId) {
+      const got = fromOthers.get(v.targetId);
+      if (got) got.push(TIER_SCORE[v.tier]);
+      else fromOthers.set(v.targetId, [TIER_SCORE[v.tier]]);
+    }
+  }
   const voters: VoterStats[] = [...byVoter].map(([voterId, vs]) => {
     const given = vs.map((v) => TIER_SCORE[v.tier]);
     const rmse = Math.sqrt(avg(vs.map((v) => (TIER_SCORE[v.tier] - (targetMean.get(v.targetId) ?? 0)) ** 2)));
     const self = vs.find((v) => v.targetId === voterId);
-    const others = votes.filter((v) => v.targetId === voterId && v.voterId !== voterId).map((v) => TIER_SCORE[v.tier]);
+    const others = fromOthers.get(voterId) ?? [];
     const selfBias = self && others.length ? TIER_SCORE[self.tier] - avg(others) : null;
     return { voterId, mean: round2(avg(given)), rmse: round2(rmse), selfBias: selfBias === null ? null : round2(selfBias) };
   });

@@ -3,8 +3,29 @@ import { eq } from "drizzle-orm";
 import { db, schema, type Tx } from "@/db";
 import { audit } from "@/lib/audit";
 import { badRequest } from "@/lib/errors";
+import { DAILY_DRAW_HOUR } from "@/lib/dates";
 
 const IDEA_VALIDATION = "idea_validation";
+const DRAW_HOUR = "daily_draw_hour";
+
+/** Local hour (APP_TZ) of the automatic daily draw, 0–23. DAILY_DRAW_HOUR until an admin changes it. */
+export async function getDrawHour(tx: Tx | typeof db = db): Promise<number> {
+  const [row] = await tx.select({ value: schema.appSettings.value }).from(schema.appSettings).where(eq(schema.appSettings.key, DRAW_HOUR)).limit(1);
+  const h = row?.value;
+  return typeof h === "number" && Number.isInteger(h) && h >= 0 && h <= 23 ? h : DAILY_DRAW_HOUR;
+}
+
+/** Admins: move the daily draw. Rejects a no-op (the admin's page was stale). */
+export async function setDrawHour(hour: number, actorId: string): Promise<void> {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw badRequest("Heure invalide");
+  await db.transaction(async (tx) => {
+    await tx.insert(schema.appSettings).values({ key: DRAW_HOUR, value: DAILY_DRAW_HOUR }).onConflictDoNothing();
+    const [row] = await tx.select({ value: schema.appSettings.value }).from(schema.appSettings).where(eq(schema.appSettings.key, DRAW_HOUR)).for("update").limit(1);
+    if (row?.value === hour) throw badRequest(`Le tirage est déjà à ${hour} h`);
+    await tx.update(schema.appSettings).set({ value: hour, updatedAt: new Date() }).where(eq(schema.appSettings.key, DRAW_HOUR));
+    await audit(actorId, "settings.draw_hour", "settings", DRAW_HOUR, { from: row?.value ?? DAILY_DRAW_HOUR, to: hour }, tx);
+  });
+}
 
 /**
  * Idea validation: new ideas from members wait for a moderator before entering the bank. Off by default.

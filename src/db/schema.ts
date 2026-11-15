@@ -15,6 +15,8 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { TIERS } from "@/lib/tiers";
+import { IDEA_DESCRIPTION_MAX, IDEA_TITLE_MAX, IDEA_TITLE_MIN } from "@/lib/limits";
 
 const id = () =>
   text("id")
@@ -24,7 +26,7 @@ const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull(
 
 export const roleEnum = pgEnum("role", ["member", "moderator", "admin"]);
 export const userStatusEnum = pgEnum("user_status", ["pending", "active", "rejected"]);
-export const tierEnum = pgEnum("tier", ["S", "A", "B", "C", "D", "F"]);
+export const tierEnum = pgEnum("tier", TIERS);
 /** daily = the automatic 08:00 draw (one per day) · extra = created by a moderator */
 export const roundKindEnum = pgEnum("round_kind", ["daily", "extra"]);
 /** pending = waiting for a moderator (idea validation on) · approved = in the bank · rejected = refused, back to its author */
@@ -110,15 +112,19 @@ export const appRateLimits = pgTable("app_rate_limits", {
 
 /* ---------- App tables ---------- */
 
-export const files = pgTable("files", {
-  id: id(),
-  ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  path: text("path").notNull(),
-  mime: text("mime").notNull(),
-  createdAt: createdAt(),
-});
+export const files = pgTable(
+  "files",
+  {
+    id: id(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    mime: text("mime").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("files_owner_idx").on(t.ownerId)],
+);
 
 export const ideas = pgTable(
   "ideas",
@@ -135,7 +141,8 @@ export const ideas = pgTable(
   (t) => [
     index("ideas_author_idx").on(t.authorId),
     index("ideas_available_idx").on(t.status, t.usedAt),
-    check("ideas_title_len", sql`char_length(${t.title}) between 3 and 120`),
+    check("ideas_title_len", sql`char_length(${t.title}) between ${sql.raw(String(IDEA_TITLE_MIN))} and ${sql.raw(String(IDEA_TITLE_MAX))}`),
+    check("ideas_description_len", sql`char_length(${t.description}) <= ${sql.raw(String(IDEA_DESCRIPTION_MAX))}`),
   ],
 );
 
@@ -157,6 +164,8 @@ export const rounds = pgTable(
   (t) => [
     // one automatic draw per day; extra tier lists are unlimited
     uniqueIndex("rounds_daily_date_uq").on(t.date).where(sql`${t.kind} = 'daily'`),
+    // an idea is played at most once, ever (draws and re-rolls rely on it)
+    uniqueIndex("rounds_idea_uq").on(t.ideaId),
     // "which tier lists are still active" without scanning the table
     index("rounds_expires_idx").on(t.expiresAt),
     check("rounds_ttl_positive", sql`${t.expiresAt} > ${t.startsAt}`),
@@ -173,7 +182,11 @@ export const roundTargets = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.roundId, t.userId] })],
+  (t) => [
+    primaryKey({ columns: [t.roundId, t.userId] }),
+    // a member validated / banned: their rows across tier lists
+    index("round_targets_user_idx").on(t.userId),
+  ],
 );
 
 export const submissions = pgTable(
@@ -210,7 +223,11 @@ export const placements = pgTable(
     tier: tierEnum("tier").notNull(),
     position: integer("position").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.submissionId, t.targetId] })],
+  (t) => [
+    primaryKey({ columns: [t.submissionId, t.targetId] }),
+    // user deletion cascades, "votes about a member"
+    index("placements_target_idx").on(t.targetId),
+  ],
 );
 
 export const comments = pgTable(
@@ -230,6 +247,8 @@ export const comments = pgTable(
   },
   (t) => [
     index("comments_round_idx").on(t.roundId, t.createdAt),
+    index("comments_user_idx").on(t.userId),
+    index("comments_reply_to_idx").on(t.replyToId),
     check("comments_body_len", sql`char_length(${t.body}) between 1 and 1000`),
   ],
 );
@@ -251,6 +270,7 @@ export const reactions = pgTable(
   (t) => [
     uniqueIndex("reactions_uq").on(t.roundId, sql`coalesce(${t.commentId}, '')`, t.userId, t.emoji),
     index("reactions_comment_idx").on(t.commentId),
+    index("reactions_user_idx").on(t.userId),
   ],
 );
 
@@ -272,9 +292,7 @@ export const auditLog = pgTable(
     meta: jsonb("meta"),
     createdAt: createdAt(),
   },
-  (t) => [index("audit_created_idx").on(t.createdAt)],
+  (t) => [index("audit_created_idx").on(t.createdAt), index("audit_actor_idx").on(t.actorId)],
 );
 
-export const TIERS = tierEnum.enumValues;
-export type Tier = (typeof TIERS)[number];
 export type IdeaStatus = (typeof ideaStatusEnum.enumValues)[number];

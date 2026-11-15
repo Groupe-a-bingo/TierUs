@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 import { cva } from "class-variance-authority";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IdeaForm } from "@/components/ideas/idea-form";
 import { deleteIdea } from "@/app/actions/ideas";
 import type { IdeaStatus } from "@/db/schema";
+import { statusAfterEdit } from "@/lib/idea-rules";
+import { useServerAction } from "@/hooks/use-server-action";
 
 type Idea = { id: string; title: string; description: string | null; played: boolean; status: IdeaStatus };
 
@@ -16,31 +17,21 @@ const row = cva("flex flex-col gap-2 rounded-lg border p-3", {
   variants: { played: { true: "border-board-edge opacity-50", false: "border-border" } },
 });
 
-/**
- * What saving an edit does to the idea (same rules as the server's statusAfterEdit):
- * a refused idea goes back to a moderator (or straight to the bank for a moderator's own idea);
- * an approved one leaves the bank for review while validation is on.
- */
-function editNotice(status: IdeaStatus, { validation, isModerator }: { validation: boolean; isModerator: boolean }) {
-  if (status === "rejected")
-    return isModerator ? "Une fois corrigée, ton idée retourne directement dans la banque." : "Une fois corrigée, ton idée sera relue par un modo.";
-  if (status === "approved" && validation && !isModerator)
+/** What saving an edit will do to the idea: the server's own rule (statusAfterEdit), put into words. */
+function editNotice(status: IdeaStatus, me: { id: string; isModerator: boolean }, validation: boolean) {
+  const next = statusAfterEdit(me, { authorId: me.id, status }, validation);
+  if (status === "rejected" && next === "approved") return "Une fois corrigée, ton idée retourne directement dans la banque.";
+  if (status === "rejected" && next === "pending") return "Une fois corrigée, ton idée sera relue par un modo.";
+  if (status === "approved" && next === "pending")
     return "Une fois modifiée, ton idée repasse en validation : elle sort de la banque jusqu'à ce qu'un modo la valide à nouveau.";
   return undefined;
 }
 
-export function MyIdeas({ ideas, validation, isModerator }: { ideas: Idea[]; validation: boolean; isModerator: boolean }) {
+export function MyIdeas({ ideas, validation, me }: { ideas: Idea[]; validation: boolean; me: { id: string; isModerator: boolean } }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = useServerAction();
 
-  const remove = (id: string) => {
-    if (!confirm("Supprimer cette idée ?")) return;
-    startTransition(async () => {
-      const res = await deleteIdea(id);
-      if (!res.ok) toast.error(res.error);
-      else toast.success("Idée supprimée");
-    });
-  };
+  const remove = (id: string) => run(() => deleteIdea(id), { success: "Idée supprimée", confirm: "Supprimer cette idée ?" });
 
   return (
     <ul className="flex flex-col gap-2">
@@ -50,7 +41,7 @@ export function MyIdeas({ ideas, validation, isModerator }: { ideas: Idea[]; val
             <IdeaForm
               editId={i.id}
               initial={{ title: i.title, description: i.description ?? "" }}
-              notice={editNotice(i.status, { validation, isModerator })}
+              notice={editNotice(i.status, me, validation)}
               onDone={() => setEditing(null)}
             />
           ) : (

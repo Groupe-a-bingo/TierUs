@@ -36,12 +36,13 @@ export async function removeMemberFromActiveRounds(userId: string, exec: Tx | ty
 }
 
 /** Targets this voter hasn't placed yet in their existing submission. */
-export async function missingTargetsFor(roundId: string, voterId: string): Promise<string[]> {
-  const { rows } = await db.execute<{ user_id: string }>(sql`
+export async function missingTargetsFor(roundId: string, voterId: string, exec: Tx | typeof db = db): Promise<string[]> {
+  const { rows } = await exec.execute<{ user_id: string }>(sql`
     select rt.user_id
     from ${roundTargets} rt
     join ${submissions} s on s.round_id = rt.round_id and s.voter_id = ${voterId}
     where rt.round_id = ${roundId}
+      and rt.user_id not in (select id from "user" where status = 'rejected')
       and not exists (
         select 1 from ${placements} p where p.submission_id = s.id and p.target_id = rt.user_id
       )

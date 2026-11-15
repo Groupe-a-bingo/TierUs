@@ -3,25 +3,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cva } from "class-variance-authority";
-import type { Tier } from "@/lib/tiers";
 import { cn } from "@/lib/utils";
+import { formatScore } from "@/lib/tiers";
 import { TierResult } from "./tier-result";
 import { AvatarTile } from "./avatar-tile";
-import type { Member } from "./types";
-import type { BoardStats } from "@/server/rounds/aggregate";
-import { StatsView, type TargetStat } from "./stats-view";
+import type { Member } from "@/lib/types";
+import type { ResultsData } from "@/server/rounds/results";
+import { StatsView } from "./stats-view";
 import { EmptyState } from "@/components/board/empty-state";
-
-export type ResultsData = {
-  average: Record<Tier, string[]>;
-  means: Record<string, number>;
-  controversial: { targetId: string; stddev: number } | null;
-  unanimous: { targetId: string; tier: Tier }[];
-  voters: { voterId: string; isLate: boolean; rows: Record<Tier, string[]> }[];
-  myId: string;
-  stats: BoardStats;
-  targets: TargetStat[];
-};
 
 type View = "avg" | "lists" | "stats";
 const VIEWS: View[] = ["avg", "lists", "stats"];
@@ -61,7 +50,8 @@ const statChip = "flex items-center gap-2 rounded-full border-2 border-board-edg
 function Story({ id, member, label, seen, selected, onClick }: { id: string; member: Member; label: string; seen: boolean; selected: boolean; onClick: () => void }) {
   return (
     <button type="button" data-story-id={id} onClick={onClick} aria-pressed={selected} className="flex w-20 shrink-0 snap-start flex-col items-center gap-1.5 active:scale-95">
-      <span className={ring({ seen: seen && !selected })}>
+      {/* the label below names the button: the photo's alt would repeat it */}
+      <span className={ring({ seen: seen && !selected })} aria-hidden>
         <span className="block rounded-xl bg-background p-0.5">
           <AvatarTile name={member.name} fileId={member.avatarFileId} size="story" />
         </span>
@@ -94,7 +84,10 @@ function Carousel({ activeId, children }: { activeId: string | null; children: R
   const update = () => {
     const el = ref.current;
     if (!el) return;
-    setEdges({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    // called on every scroll event: only re-render when an arrow appears / disappears
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
   };
   useEffect(() => {
     update();
@@ -160,7 +153,7 @@ export function ResultsTabs({ data, members }: { data: ResultsData; members: Mem
     if (order[idx]) setSeen((s) => new Set(s).add(order[idx].voterId));
   };
 
-  const captions = new Map(Object.entries(data.means).map(([id, m]) => [id, `moyenne ${m.toFixed(2)}`]));
+  const captions = new Map(Object.entries(data.means).map(([id, m]) => [id, `moyenne ${formatScore(m)}`]));
   const spicy = data.controversial ? byId.get(data.controversial.targetId) : undefined;
   const currentMember = current ? byId.get(current.voterId) : undefined;
 

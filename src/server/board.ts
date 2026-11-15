@@ -1,9 +1,14 @@
-import { and, desc, eq, gt, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { aggregate, type Vote } from "./rounds/aggregate";
+import type { Member } from "@/lib/types";
+import { isActive } from "@/lib/dates";
+import { activeRound, archivedRound, getProgressMany, notBanned } from "./rounds/queries";
 import { canSeeResults } from "./rounds/visibility";
 
-const { rounds, ideas, comments, reactions, submissions, placements, roundTargets } = schema;
+const { rounds, ideas, comments, reactions, submissions, placements } = schema;
+
+/** Archives per page (the active tier lists are never paginated). */
+export const ARCHIVE_PAGE = 30;
 
 export type BoardPost = {
   id: string;
@@ -12,6 +17,7 @@ export type BoardPost = {
   title: string;
   startsAt: Date;
   expiresAt: Date;
+  createdAt: Date;
   active: boolean;
   played: number;
   total: number;
@@ -21,30 +27,79 @@ export type BoardPost = {
   mine: boolean; // viewer has submitted
 };
 
+/** Archive pages: "<created_at ISO>~<id>" of the last post shown (stable under inserts). */
+export type Cursor = { createdAt: Date; id: string };
+export const encodeCursor = (c: Cursor) => `${c.createdAt.toISOString()}~${c.id}`;
+export function decodeCursor(raw: string | undefined): Cursor | undefined {
+  const [at, id] = raw?.split("~") ?? [];
+  const createdAt = new Date(at ?? "");
+  return id && !Number.isNaN(createdAt.getTime()) ? { createdAt, id } : undefined;
+}
+
+const createdMs = sql`date_trunc('milliseconds', ${rounds.createdAt})`;
+
+const titleSearch = (q?: string) => (q ? ilike(ideas.title, `%${q.replace(/[%_\\]/g, "\\$&")}%`) : undefined);
+
+/** How many archived tier lists match (the page only shows ARCHIVE_PAGE of them). */
+export async function countArchived(q?: string, now = new Date()): Promise<number> {
+  const [r] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(rounds)
+    .innerJoin(ideas, eq(ideas.id, rounds.ideaId))
+    .where(and(archivedRound(now), titleSearch(q)));
+  return r?.n ?? 0;
+}
+
+/**
+ * Top 3 of each tier list, computed in SQL (the same ranking as aggregate():
+ * mean score rounded to 2 decimals desc, then member id in code point order).
+ */
+async function podiums(roundIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!roundIds.length) return out;
+  const { rows } = await db.execute<{ round_id: string; target_id: string }>(sql`
+    select round_id, target_id from (
+      select s.round_id, p.target_id,
+             row_number() over (
+               partition by s.round_id
+               order by round(avg(6 - array_position(enum_range(null::tier), p.tier)), 2) desc, p.target_id collate "C"
+             ) as rk
+      from ${placements} p
+      join ${submissions} s on s.id = p.submission_id
+      where s.round_id in (${sql.join(roundIds.map((id) => sql`${id}`), sql`, `)})
+        and ${notBanned(sql`s.voter_id`)} and ${notBanned(sql`p.target_id`)}
+      group by s.round_id, p.target_id
+    ) ranked
+    where rk <= 3
+    order by round_id, rk
+  `);
+  for (const r of rows) out.set(r.round_id, [...(out.get(r.round_id) ?? []), r.target_id]);
+  return out;
+}
+
 /**
  * Board posts, newest first (creation time).
- * - "active": every tier list with starts_at <= now < expires_at (no search, no limit)
- * - "archived": expires_at <= now, searchable
+ * - "active": every active tier list (no search, no limit)
+ * - "archived": searchable, ARCHIVE_PAGE per page, `before` = the previous page's last post
  */
 export async function listBoard(
   viewerId: string,
-  opts: { scope?: "active" | "archived"; q?: string; limit?: number; now?: Date } = {},
+  opts: { scope?: "active" | "archived"; q?: string; before?: Cursor; limit?: number; now?: Date } = {},
 ): Promise<BoardPost[]> {
   const now = opts.now ?? new Date();
   const scope = opts.scope ?? "archived";
-  const search = opts.q ? ilike(ideas.title, `%${opts.q.replace(/[%_\\]/g, "\\$&")}%`) : undefined;
-  const where =
-    scope === "active"
-      ? and(gt(rounds.expiresAt, now), lte(rounds.startsAt, now))
-      : and(lte(rounds.expiresAt, now), search);
+  // created_at has microseconds, JS dates (the cursor) milliseconds: sort and
+  // compare on the millisecond, then the id, so no row is skipped or repeated
+  const before = opts.before ? sql`(${createdMs}, ${rounds.id}) < (${opts.before.createdAt.toISOString()}::timestamptz, ${opts.before.id})` : undefined;
+  const where = scope === "active" ? activeRound(now) : and(archivedRound(now), titleSearch(opts.q), before);
 
   const query = db
-    .select({ id: rounds.id, kind: rounds.kind, date: rounds.date, title: ideas.title, startsAt: rounds.startsAt, expiresAt: rounds.expiresAt })
+    .select({ id: rounds.id, kind: rounds.kind, date: rounds.date, title: ideas.title, startsAt: rounds.startsAt, expiresAt: rounds.expiresAt, createdAt: rounds.createdAt })
     .from(rounds)
     .innerJoin(ideas, eq(ideas.id, rounds.ideaId))
     .where(where)
-    .orderBy(desc(rounds.createdAt), desc(rounds.id));
-  const base = scope === "active" ? await query : await query.limit(opts.limit ?? 60);
+    .orderBy(desc(createdMs), desc(rounds.id));
+  const base = scope === "active" ? await query : await query.limit(opts.limit ?? ARCHIVE_PAGE);
   if (!base.length) return [];
   const ids = base.map((r) => r.id);
 
@@ -59,20 +114,7 @@ export async function listBoard(
       .from(reactions)
       .where(and(inArray(reactions.roundId, ids), isNull(reactions.commentId)))
       .groupBy(reactions.roundId, reactions.emoji),
-    // explicit aliases: an unqualified column inside the subquery resolved to
-    // `s` itself (s.round_id = s.round_id), counting every target as played
-    db
-      .execute<{ roundId: string; total: number; played: number }>(sql`
-        select rt.round_id as "roundId",
-               count(*)::int as total,
-               count(*) filter (
-                 where exists (select 1 from ${submissions} s where s.round_id = rt.round_id and s.voter_id = rt.user_id)
-               )::int as played
-        from ${roundTargets} rt
-        where rt.round_id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
-        group by rt.round_id
-      `)
-      .then((r) => r.rows),
+    getProgressMany(ids),
     db
       .select({ roundId: submissions.roundId })
       .from(submissions)
@@ -81,24 +123,11 @@ export async function listBoard(
 
   const mineSet = new Set(mine.map((m) => m.roundId));
   // podiums only for the tier lists the viewer answered: never load the others' votes
-  const visibleIds = ids.filter((id) => canSeeResults({ hasSubmitted: mineSet.has(id) }));
-  const votes = visibleIds.length
-    ? await db
-        .select({ roundId: submissions.roundId, voterId: submissions.voterId, targetId: placements.targetId, tier: placements.tier })
-        .from(placements)
-        .innerJoin(submissions, eq(submissions.id, placements.submissionId))
-        .where(inArray(submissions.roundId, visibleIds))
-    : [];
-  const votesByRound = new Map<string, Vote[]>();
-  for (const v of votes) {
-    const arr = votesByRound.get(v.roundId) ?? [];
-    arr.push(v as Vote);
-    votesByRound.set(v.roundId, arr);
-  }
+  const top3 = await podiums(ids.filter((id) => canSeeResults({ hasSubmitted: mineSet.has(id) })));
 
   return base.map((r) => {
     const isMine = mineSet.has(r.id);
-    const p = progress.find((x) => x.roundId === r.id);
+    const p = progress.get(r.id);
     return {
       id: r.id,
       kind: r.kind,
@@ -106,19 +135,20 @@ export async function listBoard(
       title: r.title,
       startsAt: r.startsAt,
       expiresAt: r.expiresAt,
-      active: r.startsAt.getTime() <= now.getTime() && now.getTime() < r.expiresAt.getTime(),
+      createdAt: r.createdAt,
+      active: isActive(r, now),
       played: p?.played ?? 0,
       total: p?.total ?? 0,
       comments: commentCounts.find((c) => c.roundId === r.id)?.n ?? 0,
       reactions: reactionCounts.filter((x) => x.roundId === r.id).map((x) => ({ emoji: x.emoji, count: x.n })),
-      top3: isMine ? aggregate(votesByRound.get(r.id) ?? []).results.slice(0, 3).map((x) => x.targetId) : [],
+      top3: isMine ? (top3.get(r.id) ?? []) : [],
       mine: isMine,
     };
   });
 }
 
-export async function membersById(ids: string[]) {
-  if (!ids.length) return new Map<string, { id: string; name: string; avatarFileId: string | null }>();
+export async function membersById(ids: string[]): Promise<Map<string, Member>> {
+  if (!ids.length) return new Map();
   const rows = await db
     .select({ id: schema.user.id, name: schema.user.name, avatarFileId: schema.user.avatarFileId })
     .from(schema.user)

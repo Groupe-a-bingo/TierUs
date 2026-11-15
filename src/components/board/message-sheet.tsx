@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Copy, Reply, Trash2 } from "lucide-react";
 import { cva } from "class-variance-authority";
 import { toast } from "sonner";
 import { REACTION_EMOJIS, type ReactionEmoji } from "@/lib/reactions";
-import type { ReactionSummary } from "./reaction-bar";
+import type { ReactionSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const emojiBtn = cva("flex size-12 items-center justify-center rounded-2xl text-2xl transition-transform active:scale-90", {
@@ -38,8 +38,11 @@ export function MessageSheet({
   onDelete?: () => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const pressedBackdrop = useRef(false);
   const close = useRef(onClose);
-  close.current = onClose;
+  useLayoutEffect(() => {
+    close.current = onClose;
+  });
 
   useEffect(() => {
     // the sheet is rendered when `open` is true, so its panel exists when this effect runs
@@ -88,8 +91,19 @@ export function MessageSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end" role="dialog" aria-modal="true" aria-labelledby="message-sheet-title">
-      {/* backdrop: pointer only, the keyboard closes with Escape */}
-      <button type="button" tabIndex={-1} aria-hidden className="absolute inset-0 bg-background/70 backdrop-blur-sm" onClick={onClose} />
+      {/* backdrop: pointer only, the keyboard closes with Escape. Only a press that starts on it
+          closes the sheet: the long press that opened it ends here, and that release can come with a click */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden
+        className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+        onPointerDown={() => (pressedBackdrop.current = true)}
+        onClick={() => {
+          if (pressedBackdrop.current) onClose();
+          pressedBackdrop.current = false;
+        }}
+      />
       <div ref={panel} className="relative flex animate-rise flex-col gap-3 rounded-t-3xl border-t-2 border-ink bg-card p-4 pb-safe shadow-pop-lg">
         <span className="mx-auto h-1 w-10 rounded-full bg-board-edge" aria-hidden />
         <h2 id="message-sheet-title" className="sr-only">
@@ -114,7 +128,9 @@ export function MessageSheet({
             type="button"
             className={row}
             onClick={run(() => {
-              navigator.clipboard?.writeText(body).then(
+              // no clipboard API outside a secure context (plain http)
+              if (!navigator.clipboard) return void toast.error("Copie impossible sur cette page");
+              navigator.clipboard.writeText(body).then(
                 () => toast.success("Copié"),
                 () => toast.error("Copie impossible"),
               );

@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Undo2, Check } from "lucide-react";
 import { cva } from "class-variance-authority";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { TIERS, type Tier } from "@/lib/tiers";
 import { submitTierListAction } from "@/app/actions/rounds";
 import { AvatarTile } from "./avatar-tile";
 import { TierBoardFrame, TierRow, tierBg } from "./tier-row";
-import type { Member } from "./types";
+import type { Member } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useServerAction } from "@/hooks/use-server-action";
 
 const tierButton = cva(
   "flex h-16 items-center justify-center rounded-2xl border-2 border-ink font-display text-3xl font-extrabold text-tier-foreground shadow-pop transition-transform duration-75 select-none active:translate-y-1 active:shadow-none",
@@ -54,9 +54,13 @@ function useFinePointer() {
  *   (drop on an avatar to insert before it, drop on the spotlight to take it back).
  * `locked` = placements you already sent (complement mode): shown greyed, not editable.
  * Everything is local state until "Valider", so every interaction is instant.
+ * `members` can change while playing (live refresh: a member validated or
+ * banned meanwhile): the spotlight, the queue and "done" are derived from it
+ * on every render, never stored.
  */
 export function TierEditor({
   roundId,
+  ideaId,
   members,
   archived,
   complement,
@@ -64,6 +68,8 @@ export function TierEditor({
   wide = true,
 }: {
   roundId: string;
+  /** the idea shown: the answer is refused if the tier list was re-rolled meanwhile */
+  ideaId: string;
   members: Member[];
   /** archived tier list: answering still works, it just doesn't count for the counter */
   archived: boolean;
@@ -72,29 +78,30 @@ export function TierEditor({
   wide?: boolean;
 }) {
   const byId = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
-  const [placed, setPlaced] = useState<Placement[]>([]);
-  const [current, setCurrent] = useState<string | null>(members[0]?.id ?? null);
+  const [placedState, setPlaced] = useState<Placement[]>([]);
+  // the member the player picked for the spotlight (null: the next unplaced one)
+  const [chosen, setChosen] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overTier, setOverTier] = useState<Tier | "spotlight" | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = useServerAction();
   const canDrag = useFinePointer();
 
+  // a member who left the tier list (banned) silently drops out of the board
+  const placed = placedState.filter((p) => byId.has(p.id));
   const placedIds = new Set(placed.map((p) => p.id));
-  const queue = members.filter((m) => !placedIds.has(m.id) && m.id !== current);
-  const done = placed.length === members.length;
+  const unplaced = members.filter((m) => !placedIds.has(m.id));
+  const current = chosen && byId.has(chosen) && !placedIds.has(chosen) ? chosen : (unplaced[0]?.id ?? null);
+  const queue = unplaced.filter((m) => m.id !== current);
+  const done = unplaced.length === 0 && placed.length > 0;
   const spotlight = current ? byId.get(current) : undefined;
 
-  /** Put `id` in `tier` (before `beforeId` if given); advance the spotlight if needed. */
+  /** Put `id` in `tier` (before `beforeId` if given); the spotlight moves on by itself. */
   const moveTo = (id: string, tier: Tier, beforeId?: string) => {
     if (!byId.has(id) || id === beforeId) return;
     const rest = placed.filter((p) => p.id !== id);
     const idx = beforeId ? rest.findIndex((p) => p.id === beforeId) : -1;
-    const next = idx >= 0 ? [...rest.slice(0, idx), { id, tier }, ...rest.slice(idx)] : [...rest, { id, tier }];
-    setPlaced(next);
-    if (id === current || !current) {
-      const taken = new Set(next.map((p) => p.id));
-      setCurrent(members.find((m) => !taken.has(m.id))?.id ?? null);
-    }
+    setPlaced(idx >= 0 ? [...rest.slice(0, idx), { id, tier }, ...rest.slice(idx)] : [...rest, { id, tier }]);
+    if (id === chosen) setChosen(null);
     navigator.vibrate?.(8);
   };
 
@@ -102,7 +109,7 @@ export function TierEditor({
 
   const pick = (id: string) => {
     setPlaced((prev) => prev.filter((p) => p.id !== id));
-    setCurrent(id);
+    setChosen(id);
   };
 
   const undo = () => {
@@ -114,11 +121,10 @@ export function TierEditor({
     const placements = TIERS.flatMap((tier) =>
       placed.filter((p) => p.tier === tier).map((p, position) => ({ targetId: p.id, tier, position })),
     );
-    startTransition(async () => {
-      // The action revalidates the page: fresh results come back in this same response.
-      const res = await submitTierListAction({ roundId, placements });
-      if (!res.ok) toast.error(res.error);
-      else toast.success(complement ? "Tier list complétée !" : "Tier list envoyée !");
+    // The action revalidates the page: fresh results come back in this same response.
+    // A failure (refused, offline) keeps the board as it is, ready to send again.
+    run(() => submitTierListAction({ roundId, ideaId, placements }), {
+      success: complement ? "Tier list complétée !" : "Tier list envoyée !",
     });
   };
 
@@ -204,8 +210,9 @@ export function TierEditor({
       {spotlight ? (
         <section className={cn(spotlightBox({ over: overTier === "spotlight" }), side({ wide }))} {...spotlightDrop}>
           <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
-            <span className="font-display font-semibold">
+            <span className="font-display font-semibold" aria-live="polite">
               {placed.length + 1} / {members.length}
+              <span className="sr-only"> : {spotlight.name}</span>
             </span>
             <Button variant="ghost" size="sm" onClick={undo} disabled={!placed.length}>
               <Undo2 /> Annuler
@@ -221,7 +228,7 @@ export function TierEditor({
 
           <div className="grid w-full grid-cols-6 gap-2">
             {TIERS.map((tier) => (
-              <button key={tier} type="button" className={tierButton({ tier })} onClick={() => place(tier)}>
+              <button key={tier} type="button" className={tierButton({ tier })} aria-label={`${spotlight.name} en ${tier}`} onClick={() => place(tier)}>
                 {tier}
               </button>
             ))}
@@ -234,8 +241,8 @@ export function TierEditor({
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => setCurrent(m.id)}
-                  aria-label={m.name}
+                  onClick={() => setChosen(m.id)}
+                  aria-label={`Placer ${m.name} maintenant`}
                   className={canDrag ? "cursor-grab active:cursor-grabbing" : ""}
                   {...dragProps(m.id)}
                 >

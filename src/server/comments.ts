@@ -1,7 +1,9 @@
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/db";
-import type { CommentView } from "@/components/board/comments";
-import type { ReactionSummary } from "@/components/board/reaction-bar";
+import type { CommentView, ReactionSummary } from "@/lib/types";
+
+/** The discussion shows the latest messages (older ones aren't paginated yet). */
+export const COMMENTS_LIMIT = 500;
 
 const { comments, reactions, user } = schema;
 
@@ -24,32 +26,46 @@ export async function getPostReactions(roundId: string, viewerId: string) {
   return summarize(rows.filter((r) => !r.commentId), viewerId);
 }
 
+const commentCols = {
+  id: comments.id,
+  body: comments.body,
+  createdAt: comments.createdAt,
+  deletedAt: comments.deletedAt,
+  replyToId: comments.replyToId,
+  authorId: user.id,
+  authorName: user.name,
+  authorAvatar: user.avatarFileId,
+};
+
 export async function getComments(roundId: string, viewerId: string, viewerIsMod: boolean): Promise<CommentView[]> {
-  const rows = await db
-    .select({
-      id: comments.id,
-      body: comments.body,
-      createdAt: comments.createdAt,
-      deletedAt: comments.deletedAt,
-      replyToId: comments.replyToId,
-      authorId: user.id,
-      authorName: user.name,
-      authorAvatar: user.avatarFileId,
-    })
-    .from(comments)
-    .innerJoin(user, eq(user.id, comments.userId))
-    .where(eq(comments.roundId, roundId))
-    .orderBy(asc(comments.createdAt))
-    .limit(500);
+  // the newest messages, shown oldest first
+  const rows = (
+    await db
+      .select(commentCols)
+      .from(comments)
+      .innerJoin(user, eq(user.id, comments.userId))
+      .where(eq(comments.roundId, roundId))
+      .orderBy(desc(comments.createdAt), desc(comments.id))
+      .limit(COMMENTS_LIMIT)
+  ).reverse();
 
   const ids = rows.map((r) => r.id);
+  // messages quoted by a reply but older than the window: only for the quote
+  const missingParents = [...new Set(rows.map((r) => r.replyToId).filter((id): id is string => !!id && !ids.includes(id)))];
+  const parents = missingParents.length
+    ? await db
+        .select(commentCols)
+        .from(comments)
+        .innerJoin(user, eq(user.id, comments.userId))
+        .where(inArray(comments.id, missingParents))
+    : [];
   const reacts = ids.length
     ? await db
         .select({ emoji: reactions.emoji, userId: reactions.userId, commentId: reactions.commentId })
         .from(reactions)
         .where(and(inArray(reactions.commentId, ids), isNotNull(reactions.commentId)))
     : [];
-  const byId = new Map(rows.map((r) => [r.id, r]));
+  const byId = new Map([...rows, ...parents].map((r) => [r.id, r]));
 
   // a deleted message is only kept as a placeholder if someone replied to it
   const repliedTo = new Set(rows.filter((r) => !r.deletedAt && r.replyToId).map((r) => r.replyToId));

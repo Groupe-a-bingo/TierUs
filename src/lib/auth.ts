@@ -5,15 +5,14 @@ import { nextCookies } from "better-auth/next-js";
 import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
 import { CLIENT_IP_HEADER, ipFromHeaders, peek, record } from "@/lib/rate-limit";
 import { db, schema } from "@/db";
+import { nameSchema } from "@/lib/names";
 import "@/lib/env";
 
-/** Same rule as the profile form: 2–32 visible characters. */
+/** Same rule as the profile form (nameSchema). */
 function checkName(name: unknown) {
   if (typeof name !== "string") return;
-  const n = name.trim();
-  if (n.length < 2 || n.length > 32) {
-    throw new APIError("BAD_REQUEST", { message: "Le pseudo doit faire entre 2 et 32 caractères" });
-  }
+  const parsed = nameSchema.safeParse(name);
+  if (!parsed.success) throw new APIError("BAD_REQUEST", { message: parsed.error.issues[0]?.message });
 }
 
 const trustedProxies = (process.env.TRUSTED_PROXIES ?? "")
@@ -123,4 +122,3 @@ function failKey(email: unknown, headers: Headers | undefined): string | null {
   return `${email.trim().toLowerCase()}|${ip}`;
 }
 
-export type Session = typeof auth.$Infer.Session;
