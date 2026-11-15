@@ -6,7 +6,7 @@
 export const APP_TZ = "Europe/Paris";
 
 export const HOUR_MS = 60 * 60 * 1000;
-/** Local hour of the automatic daily draw (wall clock in APP_TZ, DST included). */
+/** Default local hour of the automatic daily draw (wall clock in APP_TZ, DST included); admins can change it (getDrawHour). */
 export const DAILY_DRAW_HOUR = 8;
 /** Default lifetime of a tier list: 24 real hours (not "until tomorrow 08:00"). */
 export const DEFAULT_TTL_HOURS = 24;
@@ -41,8 +41,22 @@ export function addDays(key: string, days: number): string {
  * the next morning: a prior day's catch-up drawn at e.g. 03:00 would overlap
  * the 08:00 draw five hours later with a second "daily" dated yesterday.
  */
-export function dueDailyKey(now: Date = new Date(), tz = APP_TZ): string | null {
-  return localHour(now, tz) >= DAILY_DRAW_HOUR ? dayKey(now, tz) : null;
+export function dueDailyKey(now: Date = new Date(), tz = APP_TZ, drawHour = DAILY_DRAW_HOUR): string | null {
+  return localHour(now, tz) >= drawHour ? dayKey(now, tz) : null;
+}
+
+/**
+ * What the home and /mod say when no tier list is running. Before 08:00 an idea
+ * entering an empty bank draws nothing (drawDaily is "not_due"): it waits for 08:00.
+ */
+export function nextDrawHint(bank: number, drawHour: number, now: Date = new Date(), tz = APP_TZ): string {
+  const due = dueDailyKey(now, tz, drawHour) !== null;
+  if (bank === 0) {
+    return due
+      ? "La banque d'idées est vide : la prochaine idée qui y entre lance la tier list du jour."
+      : `La banque d'idées est vide : propose une idée avant ${drawHour} h pour avoir la tier list du jour.`;
+  }
+  return due ? `La prochaine tier list est tirée demain à ${drawHour} h.` : `La prochaine tier list est tirée à ${drawHour} h.`;
 }
 
 /** Active = started and not yet expired. The TTL only decides home vs archives. */

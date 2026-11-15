@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PgBoss } from "pg-boss";
-import { APP_TZ, DAILY_DRAW_HOUR, dueDailyKey, localHour } from "@/lib/dates";
+import { APP_TZ, dueDailyKey, localHour } from "@/lib/dates";
+import { getDrawHour } from "@/server/settings";
 import { drawDaily } from "@/server/rounds/draw";
 import { pool } from "@/db";
 
@@ -23,16 +24,17 @@ async function main() {
   await boss.work(DRAW, async () => {
     const now = new Date();
     const res = await drawDaily(now);
-    if (res.status === "created") console.log(`[draw] ${dueDailyKey(now)} → created`);
-    // warn once per morning, not on every catch-up tick
-    if (res.status === "empty_bank" && localHour(now) === DAILY_DRAW_HOUR && now.getUTCMinutes() < 15) {
+    if (res.status === "created") console.log(`[draw] ${dueDailyKey(now, APP_TZ, await getDrawHour())} → created`);
+    // warn once per day at the draw hour, not on every catch-up tick
+    if (res.status === "empty_bank" && localHour(now) === (await getDrawHour()) && now.getUTCMinutes() < 15) {
       console.warn("[draw] La banque d'idées est vide ! La prochaine idée qui y entre (proposée ou validée) lancera le tirage.");
     }
   });
 
   // Catch up on start (e.g. the worker was down at 08:00)
   const res = await drawDaily();
-  console.log(`[worker] started (tz=${APP_TZ}); daily ${dueDailyKey() ?? "(before 08:00)"}: ${res.status}`);
+  const hour = await getDrawHour();
+  console.log(`[worker] started (tz=${APP_TZ}, draw at ${hour}:00); daily ${dueDailyKey(new Date(), APP_TZ, hour) ?? `(before ${hour}:00)`}: ${res.status}`);
 
   const stop = async () => {
     await boss.stop({ graceful: true });

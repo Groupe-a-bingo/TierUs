@@ -13,6 +13,7 @@ export const AUDIT_ACTIONS = {
   "user.promote_admin": "Admin nommé (serveur)",
   "comment.delete": "Message supprimé",
   "settings.idea_validation": "Validation des idées changée",
+  "settings.draw_hour": "Heure du tirage changée",
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

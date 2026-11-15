@@ -14,7 +14,7 @@ const MAX_INTERVAL_MS = 30_000;
  * happens before the first poll is missed. Stops while the tab is hidden
  * (no timer at all), and backs off after errors.
  */
-export function LiveRefresh({ roundId, initial }: { roundId?: string; initial: string }) {
+export function LiveRefresh({ roundId, scope, initial }: { roundId?: string; scope?: "mod" | "ideas"; initial: string }) {
   const router = useRouter();
   const last = useRef(initial);
 
@@ -29,7 +29,7 @@ export function LiveRefresh({ roundId, initial }: { roundId?: string; initial: s
     let timer: ReturnType<typeof setTimeout> | undefined;
     let ctrl: AbortController | undefined;
     let delay = INTERVAL_MS;
-    const url = roundId ? `/api/live?round=${roundId}` : "/api/live";
+    const url = roundId ? `/api/live?round=${roundId}` : scope ? `/api/live?scope=${scope}` : "/api/live";
 
     const schedule = () => {
       if (timer) clearTimeout(timer);
@@ -77,7 +77,7 @@ export function LiveRefresh({ roundId, initial }: { roundId?: string; initial: s
       ctrl?.abort();
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [roundId, router]);
+  }, [roundId, scope, router]);
 
   return null;
 }

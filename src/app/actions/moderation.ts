@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { guard } from "@/lib/guard";
 import { parseInput, runAction } from "@/lib/errors";
 import { setMemberRole, setMemberStatus } from "@/server/members";
-import { setIdeaValidation } from "@/server/settings";
+import { setDrawHour, setIdeaValidation } from "@/server/settings";
 import { catchUpDaily } from "@/server/rounds/catch-up";
 
 const userId = z.string().min(1).max(64);
@@ -41,5 +41,15 @@ export async function setIdeaValidationAction(enabled: boolean) {
       await catchUpDaily(admin.id, "settings");
     }
     return res;
+  });
+}
+
+/** Admin setting: the hour of the automatic daily draw. Moved earlier than now, today's missing daily is drawn right away. */
+export async function setDrawHourAction(hour: number) {
+  return runAction(async () => {
+    const admin = await guard("admin", "modAction");
+    await setDrawHour(parseInput(z.number().int().min(0).max(23), hour), admin.id);
+    revalidatePath("/", "layout");
+    await catchUpDaily(admin.id, "settings");
   });
 }

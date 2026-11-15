@@ -6,9 +6,10 @@ La tier list quotidienne de la commu : chaque jour à 8 h (heure de Paris), une 
 - Chaque tier list a un TTL (24 h réelles par défaut, au choix pour les supplémentaires) : active tant que `starts_at <= now < expires_at`, puis dans les archives. Le TTL ne ferme pas les votes.
 - Les résultats d'une tier list ne sont visibles qu'après y avoir répondu, archivée ou non. Seuls ses membres (ceux qui étaient validés pendant qu'elle était active) peuvent y répondre : un membre arrivé après son archivage ne change pas un résultat passé.
 - Un membre banni disparaît de toutes les tier lists, archives comprises : il n'est plus listé ni compté, et ses votes (donnés comme reçus) ne comptent plus. Rien n'est supprimé : le réintégrer remet tout en place.
-- Une photo de profil est obligatoire pour être validé (on se classe par photo).
+- La photo de profil est facultative : un membre sans photo apparaît sous une tuile colorée avec son initiale.
 - Compteur personnel : nombre de tier lists répondues avant leur archivage (une fois par tier list, jamais remis à zéro).
 - Si la banque est vide à 8 h, la prochaine idée proposée déclenche le tirage du jour manquant (sans doublon).
+- Réglages admin dans `/mod` : heure du tirage quotidien (8 h par défaut) et validation des idées.
 - Validation des idées (optionnelle, activée par un admin dans `/mod`) : les idées des membres attendent qu'un modo les valide avant d'entrer dans la banque ; une idée refusée revient à son auteur : elle ne repasse devant un modo que s'il la corrige (même validation désactivée). Un modo peut aussi la remettre directement dans la banque depuis `/mod` (il change d'avis). Désactiver la validation fait entrer toutes les idées en attente dans la banque.
 - URL d'une tier list : `/r/<id>`. Les anciens liens `/r/AAAA-MM-JJ` redirigent (temporairement) vers la tier list quotidienne de ce jour.
 - Le fuseau est fixé à Europe/Paris (`APP_TZ` dans `src/lib/dates.ts`) : le navigateur affiche les heures avec le même fuseau que le serveur.
@@ -31,7 +32,7 @@ Tous les comptes s'inscrivent en `pending`. Pour créer le premier admin, inscri
 npm run admin:promote -- ton@email.fr
 ```
 
-(Un admin n'est jamais attribué par l'inscription elle-même : sinon n'importe qui pourrait réclamer l'email admin en premier.) Les emails ne sont pas vérifiés (aucun mail n'est envoyé) : le script affiche le compte trouvé (pseudo, date d'inscription, photo) et demande confirmation avant de le promouvoir. Vérifie que c'est bien le tien. Ensuite, les modérateurs valident les nouveaux comptes dans `/mod` ; une photo de profil est obligatoire pour être validé.
+(Un admin n'est jamais attribué par l'inscription elle-même : sinon n'importe qui pourrait réclamer l'email admin en premier.) Les emails ne sont pas vérifiés (aucun mail n'est envoyé) : le script affiche le compte trouvé (pseudo, date d'inscription, photo) et demande confirmation avant de le promouvoir. Vérifie que c'est bien le tien. Ensuite, les modérateurs valident les nouveaux comptes dans `/mod`.
 
 **Derrière un proxy** (Cloudflare, nginx…), mets `CLIENT_IP_HEADER` sur l'en-tête qui porte la vraie IP du client (`cf-connecting-ip`, `x-real-ip`…), sinon le rate limit par IP peut être contourné en forgeant `X-Forwarded-For`. En production, l'app refuse de démarrer sans `CLIENT_IP_HEADER` (ou `TRUSTED_PROXIES`). L'app fait confiance à cet en-tête : elle ne doit être joignable que par le proxy. Avec `docker compose`, le port 3010 est publié sur `127.0.0.1` par défaut (`APP_BIND`) ; ne passe `APP_BIND=0.0.0.0` que si le proxy tourne sur une autre machine et que le port est filtré.
 

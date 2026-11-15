@@ -6,6 +6,7 @@ import { drawDaily, drawExtra, rerollRound } from "@/server/rounds/draw";
 import { getActiveRounds, getTargets } from "@/server/rounds/queries";
 import { submitTierList } from "@/server/rounds/submit";
 import { setMemberStatus } from "@/server/members";
+import { getDrawHour, setDrawHour } from "@/server/settings";
 import { drawActive, makeIdeas, makeUser, placementsFor, resetDb } from "../support/factories";
 
 beforeEach(resetDb);
@@ -45,7 +46,7 @@ describe("drawDaily (08:00 Europe/Paris)", () => {
     const first = await drawDaily(at("2026-01-10T07:00:00Z")); // 08:00 on the 10th
     expect(first.status).toBe("created");
     expect(await drawDaily(at("2026-01-10T22:00:00Z"))).toEqual({ status: "exists", roundId: first.status === "created" ? first.roundId : "" });
-    expect(await drawDaily(at("2026-01-11T06:30:00Z"))).toEqual({ status: "not_due" }); // 07:30 on the 11th
+    expect(await drawDaily(at("2026-01-11T06:30:00Z"))).toEqual({ status: "not_due", hour: 8 }); // 07:30 on the 11th
     expect((await drawDaily(at("2026-01-11T07:00:00Z"))).status).toBe("created"); // 08:00 on the 11th
     expect(await db.select().from(schema.rounds)).toHaveLength(2);
   });
@@ -55,7 +56,7 @@ describe("drawDaily (08:00 Europe/Paris)", () => {
     expect((await drawDaily(at("2026-01-10T07:00:00Z"))).status).toBe("empty_bank"); // 08:00 on the 10th
     await makeIdeas(2);
     // an idea proposed at 03:00 on the 11th: no daily dated the 10th overlapping the 08:00 one
-    expect(await drawDaily(at("2026-01-11T02:00:00Z"))).toEqual({ status: "not_due" });
+    expect(await drawDaily(at("2026-01-11T02:00:00Z"))).toEqual({ status: "not_due", hour: 8 });
     const next = await drawDaily(at("2026-01-11T07:00:00Z"));
     if (next.status !== "created") throw new Error("expected the 11th's daily");
     expect((await round(next.roundId)).date).toBe("2026-01-11");
@@ -139,6 +140,21 @@ describe("drawDaily (08:00 Europe/Paris)", () => {
   });
 });
 
+describe("draw hour setting", () => {
+  it("draws the daily at the hour an admin set, and refuses a no-op", async () => {
+    const admin = await makeUser({ role: "admin" });
+    await makeIdeas(2);
+    expect(await getDrawHour()).toBe(8);
+    await setDrawHour(12, admin.id);
+    expect(await getDrawHour()).toBe(12);
+    await expect(setDrawHour(12, admin.id)).rejects.toThrow();
+    await expect(setDrawHour(24, admin.id)).rejects.toThrow();
+    // 11:30 Paris (UTC+2 in May): not yet; 12:05: drawn
+    expect(await drawDaily(at("2026-05-05T09:30:00Z"))).toEqual({ status: "not_due", hour: 12 });
+    expect((await drawDaily(at("2026-05-05T10:05:00Z"))).status).toBe("created");
+  });
+});
+
 describe("drawExtra", () => {
   it("adds tier lists on top of the daily one, same day, each with its own TTL and id", async () => {
     await makeUser();
@@ -160,6 +176,19 @@ describe("drawExtra", () => {
 
   it("reports an empty bank", async () => {
     expect((await drawExtra(24)).status).toBe("empty_bank");
+  });
+
+  it("plays the idea the moderator picked, and refuses one that left the bank", async () => {
+    await makeUser();
+    const [a, b] = await makeIdeas(3);
+    const x = await drawExtra(24, new Date(), null, b.id);
+    if (x.status !== "created") throw new Error("setup");
+    expect(x.ideaId).toBe(b.id);
+    // already played: no longer in the bank
+    expect((await drawExtra(24, new Date(), null, b.id)).status).toBe("idea_unavailable");
+    await db.update(schema.ideas).set({ status: "rejected" }).where(eq(schema.ideas.id, a.id));
+    expect((await drawExtra(24, new Date(), null, a.id)).status).toBe("idea_unavailable");
+    expect((await drawExtra(24, new Date(), null, crypto.randomUUID())).status).toBe("idea_unavailable");
   });
 });
 

@@ -2,7 +2,8 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, schema, type Tx } from "@/db";
 import { audit } from "@/lib/audit";
 import { badRequest, notFound } from "@/lib/errors";
-import { DEFAULT_TTL_HOURS, HOUR_MS, dayKey, dueDailyKey } from "@/lib/dates";
+import { APP_TZ, DEFAULT_TTL_HOURS, HOUR_MS, dayKey, dueDailyKey } from "@/lib/dates";
+import { getDrawHour } from "@/server/settings";
 import { availableIdea } from "@/server/ideas";
 import { lockMembership } from "./lock";
 
@@ -12,13 +13,15 @@ export type DrawResult =
   | { status: "created"; roundId: string; ideaId: string }
   | { status: "exists"; roundId: string }
   | { status: "empty_bank" }
-  /** before 08:00 Paris: no daily is due yet today */
-  | { status: "not_due" };
+  /** the moderator's chosen idea left the bank meanwhile (drawn, edited back to review, deleted) */
+  | { status: "idea_unavailable" }
+  /** before the draw hour (Paris): no daily is due yet today */
+  | { status: "not_due"; hour: number };
 
 /** Who asked for a draw, written to the audit log with the new tier list. */
 export type DrawSource = { actorId: string | null; trigger: "worker" | "manual" | "extra" | "idea" | "review" | "settings" };
 
-type NewRound = { kind: "daily" | "extra"; date: string; now: Date; ttlHours: number; by: DrawSource };
+type NewRound = { kind: "daily" | "extra"; date: string; now: Date; ttlHours: number; by: DrawSource; ideaId?: string };
 
 /**
  * A random drawable idea, row-locked until the end of the transaction.
@@ -38,6 +41,14 @@ async function pickRandomIdea(tx: Tx, exclude?: string): Promise<string | null> 
   return rows[0]?.id ?? null;
 }
 
+/** The moderator's chosen idea, if it's still drawable; row-locked like a random pick. */
+async function pickChosenIdea(tx: Tx, id: string): Promise<string | null> {
+  const { rows } = await tx.execute<{ id: string }>(sql`
+    select id from ${ideas} where id = ${id} and ${availableIdea()} for update
+  `);
+  return rows[0]?.id ?? null;
+}
+
 /**
  * Create a tier list: pick a random never-used approved idea (no duplicates ever),
  * mark it used, and snapshot the active members as targets.
@@ -49,7 +60,7 @@ async function pickRandomIdea(tx: Tx, exclude?: string): Promise<string | null> 
  * validated concurrently is either snapshotted here or added afterwards.
  * The partial unique index on daily dates stays as the last line of defense.
  */
-async function createRound({ kind, date, now, ttlHours, by }: NewRound): Promise<DrawResult> {
+async function createRound({ kind, date, now, ttlHours, by, ideaId: chosen }: NewRound): Promise<DrawResult> {
   return db.transaction(async (tx): Promise<DrawResult> => {
     await lockMembership(tx);
 
@@ -62,8 +73,8 @@ async function createRound({ kind, date, now, ttlHours, by }: NewRound): Promise
       if (existing) return { status: "exists", roundId: existing.id };
     }
 
-    const ideaId = await pickRandomIdea(tx);
-    if (!ideaId) return { status: "empty_bank" };
+    const ideaId = chosen ? await pickChosenIdea(tx, chosen) : await pickRandomIdea(tx);
+    if (!ideaId) return chosen ? { status: "idea_unavailable" } : { status: "empty_bank" };
 
     // the unique indexes (one daily per day, one tier list per idea) can't
     // conflict under the lock: a violation is a real bug and must surface
@@ -78,28 +89,30 @@ async function createRound({ kind, date, now, ttlHours, by }: NewRound): Promise
     if (members.length) {
       await tx.insert(roundTargets).values(members.map((m) => ({ roundId, userId: m.id })));
     }
-    await audit(by.actorId, kind === "daily" ? "round.draw" : "round.extra", "round", roundId, { trigger: by.trigger, ttlHours }, tx);
+    await audit(by.actorId, kind === "daily" ? "round.draw" : "round.extra", "round", roundId, { trigger: by.trigger, ttlHours, ...(chosen ? { chosen: true } : {}) }, tx);
     return { status: "created", roundId, ideaId };
   });
 }
 
 /**
- * The automatic daily tier list of today, due from 08:00 Europe/Paris.
- * Idempotent: the worker (08:00 + catch-up ticks), a worker restart and a new
+ * The automatic daily tier list of today, due from the draw hour (Europe/Paris,
+ * 08:00 unless an admin changed it, see getDrawHour).
+ * Idempotent: the worker (draw hour + catch-up ticks), a worker restart and a new
  * idea after an empty bank may all call it; only one daily per day exists.
  * Before 08:00 nothing is due: a day whose daily was never drawn (empty bank
  * all day) is skipped rather than drawn in the early morning, which would make
  * it overlap the 08:00 one a few hours later.
  */
-export function drawDaily(now = new Date(), by: DrawSource = { actorId: null, trigger: "worker" }): Promise<DrawResult> {
-  const date = dueDailyKey(now);
-  if (!date) return Promise.resolve({ status: "not_due" });
+export async function drawDaily(now = new Date(), by: DrawSource = { actorId: null, trigger: "worker" }): Promise<DrawResult> {
+  const hour = await getDrawHour();
+  const date = dueDailyKey(now, APP_TZ, hour);
+  if (!date) return { status: "not_due", hour };
   return createRound({ kind: "daily", date, now, ttlHours: DEFAULT_TTL_HOURS, by });
 }
 
-/** Moderator button: an extra tier list with its own TTL, on top of the daily one. */
-export function drawExtra(ttlHours: number, now = new Date(), actorId: string | null = null): Promise<DrawResult> {
-  return createRound({ kind: "extra", date: dayKey(now), now, ttlHours, by: { actorId, trigger: "extra" } });
+/** Moderator button: an extra tier list with its own TTL, on top of the daily one: a random idea, or the one picked. */
+export function drawExtra(ttlHours: number, now = new Date(), actorId: string | null = null, ideaId?: string): Promise<DrawResult> {
+  return createRound({ kind: "extra", date: dayKey(now), now, ttlHours, by: { actorId, trigger: "extra" }, ideaId });
 }
 
 /**

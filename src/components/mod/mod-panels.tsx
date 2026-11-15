@@ -2,16 +2,16 @@
 
 import { useState } from "react";
 import { cva } from "class-variance-authority";
-import { Ban, MoreHorizontal, ShieldMinus, ShieldPlus, Undo2 } from "lucide-react";
+import { Ban, MoreHorizontal, Pencil, ShieldMinus, ShieldPlus, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { IdeaForm } from "@/components/ideas/idea-form";
-import { setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
+import { setDrawHourAction, setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
 import { deleteIdea, reviewIdeaAction } from "@/app/actions/ideas";
 import { createExtraRoundAction, drawNowAction } from "@/app/actions/rounds";
-import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/board/empty-state";
 import { useServerAction } from "@/hooks/use-server-action";
@@ -45,12 +45,7 @@ export function PendingUsers({ users }: { users: (ModMember & { email: string })
             <p className="truncate text-xs text-muted-foreground">{u.email}</p>
             {!u.avatarFileId && <p className="text-xs text-muted-foreground">Pas encore de photo</p>}
           </div>
-          <Button
-            size="sm"
-            disabled={pending || !u.avatarFileId}
-            title={u.avatarFileId ? undefined : "Il faut une photo de profil pour être validé"}
-            onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}
-          >
+          <Button size="sm" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "active"), `${u.name} validé`)}>
             Valider
           </Button>
           <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => setUserStatus(u.id, "rejected"), "Refusé", `Refuser ${u.name} ?`)}>
@@ -121,128 +116,147 @@ export function Members({ users, viewerId, viewerIsAdmin }: { users: ModMember[]
   );
 }
 
-type PendingIdea = { id: string; title: string; description: string | null; author: string | null };
+/**
+ * Admin settings. Idea validation: turning it off releases the waiting ideas
+ * into the bank. Draw hour: moved earlier than now, today's missing daily is
+ * drawn right away. The server refuses a no-op (page out of date): we then reload the real state.
+ */
+export function AdminSettings({ drawHour, validation, waiting }: { drawHour: number; validation: boolean; waiting: number }) {
+  const { pending, run } = useServerAction();
+  const hours = Array.from({ length: 24 }, (_, h) => ({ value: h, label: `${h} h` }));
+
+  const toggle = () =>
+    run(() => setIdeaValidationAction(!validation), {
+      confirm: validation && waiting ? `Désactiver la validation ? Les idées en attente (${waiting}) partiront directement dans la banque.` : undefined,
+      refreshOnError: true,
+      success: (data) => {
+        const released = data?.approved ?? 0;
+        return validation ? `Validation désactivée${released ? ` · ${released} idée(s) entrée(s) dans la banque` : ""}` : "Validation activée";
+      },
+    });
+  const setHour = (h: number) =>
+    h !== drawHour && run(() => setDrawHourAction(h), { success: `Tirage à ${h} h`, confirm: `Tirer la tier list du jour à ${h} h ?`, refreshOnError: true });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <Label id="setting-hour">Heure du tirage</Label>
+        <div className="w-28">
+          <Select items={hours} value={drawHour} onValueChange={(v) => setHour(Number(v))} disabled={pending}>
+            <SelectTrigger aria-labelledby="setting-hour">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {hours.map((h) => (
+                <SelectItem key={h.value} value={h.value}>
+                  {h.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <Label id="setting-validation">Validation des idées</Label>
+        <Button variant={validation ? "default" : "outline"} aria-pressed={validation} aria-labelledby="setting-validation" disabled={pending} onClick={toggle}>
+          {validation ? "Activée" : "Désactivée"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// played ideas stay listed, greyed out and read-only; refused ones stay fully usable
+const ideaRow = cva("flex flex-col gap-2 rounded-lg border p-3", {
+  variants: { played: { true: "border-board-edge opacity-50", false: "border-border" } },
+});
+
+type Idea = { id: string; title: string; description: string | null; author: string | null };
+export type IdeaTab = "pending" | "bank" | "played" | "rejected";
+export type IdeaLists = Record<IdeaTab, { ideas: Idea[]; count: number }>;
 
 /** What the moderator is looking at: the review only applies if the idea still reads exactly like this. */
 const seenText = (i: { title: string; description: string | null }) => ({ title: i.title, description: i.description });
 
-/** Ideas waiting for validation, oldest first: approved ones enter the bank. */
-export function PendingIdeas({ ideas }: { ideas: PendingIdea[] }) {
-  const { pending, run } = useModAction();
-  if (!ideas.length) return <EmptyState>Aucune idée à valider.</EmptyState>;
-  return (
-    <ul className="flex flex-col gap-2">
-      {ideas.map((i) => (
-        <li key={i.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
-          <div className="min-w-0">
-            <p className="font-medium">{i.title}</p>
-            {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
-            <p className="text-xs text-muted-foreground">par {i.author ?? "compte supprimé"}</p>
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée ajoutée à la banque")}>
-              Valider
-            </Button>
-            <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "rejected", seenText(i)), "Idée refusée", `Refuser « ${i.title} » ?`)}>
-              Refuser
-            </Button>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
+const TABS: { tab: IdeaTab; label: string; empty: string }[] = [
+  { tab: "pending", label: "À valider", empty: "Aucune idée à valider." },
+  { tab: "bank", label: "Banque", empty: "La banque est vide." },
+  { tab: "played", label: "Jouées", empty: "Aucune idée jouée pour l'instant." },
+  { tab: "rejected", label: "Refusées", empty: "Aucune idée refusée." },
+];
 
 /**
- * Admin switch for idea validation. Turning it off releases the waiting ideas into the bank.
- * The server refuses a no-op (page out of date): we then reload the real state.
+ * Every idea, by state. The bank only holds the drawable ones (approved, never
+ * played): waiting and refused ideas have their own tab.
  */
-export function IdeaValidationToggle({ enabled, waiting }: { enabled: boolean; waiting: number }) {
-  const { pending, run } = useServerAction();
-  const toggle = () =>
-    run(() => setIdeaValidationAction(!enabled), {
-      confirm: enabled && waiting ? `Désactiver la validation ? Les idées en attente (${waiting}) partiront directement dans la banque.` : undefined,
-      refreshOnError: true,
-      success: (data) => {
-        const released = data?.approved ?? 0;
-        return enabled ? `Validation désactivée${released ? ` · ${released} idée(s) entrée(s) dans la banque` : ""}` : "Validation activée";
-      },
-    });
-  // fixed name + aria-pressed: screen readers announce "Validation des idées, activé"
-  return (
-    <Button size="sm" variant={enabled ? "default" : "outline"} aria-pressed={enabled} disabled={pending} onClick={toggle}>
-      Validation des idées : {enabled ? "activée" : "désactivée"}
-    </Button>
-  );
-}
-
-// played and refused ideas stay listed, greyed out (played ones are read-only)
-const ideaRow = cva("flex flex-col gap-2 rounded-lg border p-3", {
-  variants: { used: { true: "border-board-edge opacity-50", false: "border-border" } },
-});
-
-type Idea = { id: string; title: string; description: string | null; author: string | null; used: boolean; rejected: boolean };
-type BankFilter = "available" | "used" | "rejected" | "all";
-
-export function IdeaBank({ ideas, availableCount }: { ideas: Idea[]; availableCount: number }) {
+export function IdeasPanel({ lists }: { lists: IdeaLists }) {
   const { pending, run } = useModAction();
   const [editing, setEditing] = useState<string | null>(null);
-  const [filter, setFilter] = useState<BankFilter>("available");
-  const matches: Record<BankFilter, (i: Idea) => boolean> = {
-    available: (i) => !i.used && !i.rejected,
-    used: (i) => i.used,
-    rejected: (i) => i.rejected,
-    all: () => true,
-  };
-  const label: Record<BankFilter, string> = {
-    available: `Dispo (${availableCount})`,
-    used: "Utilisées",
-    rejected: "Refusées",
-    all: "Toutes",
-  };
-  const shown = ideas.filter(matches[filter]);
+  const [tab, setTab] = useState<IdeaTab>(lists.pending.count > 0 ? "pending" : "bank");
+  const { ideas } = lists[tab];
+
+  const remove = (i: Idea) => run(() => deleteIdea(i.id), "Idée supprimée", `Supprimer « ${i.title} » ?`);
+  const more = (i: Idea) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={pending} aria-label={`Actions pour « ${i.title} »`} />}>
+        <MoreHorizontal />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setEditing(i.id)}>
+          <Pencil />
+          Modifier
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={() => remove(i)}>
+          <Trash2 />
+          Supprimer
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
-        {(["available", "used", "rejected", "all"] as const).map((f) => (
-          <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-            {label[f]}
+    <div className="flex flex-col gap-3 lg:h-full">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer les idées">
+        {TABS.map((t) => (
+          <Button key={t.tab} size="sm" variant={tab === t.tab ? "default" : "outline"} aria-pressed={tab === t.tab} onClick={() => setTab(t.tab)}>
+            {t.label} ({lists[t.tab].count})
           </Button>
         ))}
       </div>
-      {shown.length === 0 && <EmptyState>Aucune idée ici.</EmptyState>}
-      <ul className="flex flex-col gap-2">
-        {shown.map((i) => (
-          <li key={i.id} className={ideaRow({ used: i.used || i.rejected })}>
+      {ideas.length === 0 && <EmptyState>{TABS.find((t) => t.tab === tab)!.empty}</EmptyState>}
+      <ul className="flex flex-col gap-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:scrollbar-theme lg:pr-1">
+        {ideas.map((i) => (
+          <li key={i.id} className={ideaRow({ played: tab === "played" })}>
             {editing === i.id ? (
               <IdeaForm editId={i.id} initial={{ title: i.title, description: i.description ?? "" }} onDone={() => setEditing(null)} />
             ) : (
-              <>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-medium">{i.title}</p>
-                    {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
-                    <p className="text-xs text-muted-foreground">par {i.author ?? "compte supprimé"}</p>
-                  </div>
-                  {i.used && <Badge variant="outline">utilisée</Badge>}
-                  {i.rejected && <Badge variant="destructive">refusée</Badge>}
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">{i.title}</p>
+                  {i.description && <p className="text-sm text-muted-foreground">{i.description}</p>}
+                  <p className="text-xs text-muted-foreground">par {i.author ?? "compte supprimé"}</p>
                 </div>
-                {!i.used && (
-                  <div className="flex flex-wrap gap-2">
-                    {i.rejected && (
-                      <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée remise dans la banque")}>
-                        Remettre dans la banque
-                      </Button>
-                    )}
-                    <Button size="sm" variant="outline" onClick={() => setEditing(i.id)}>
-                      Modifier
+                {tab === "pending" && (
+                  <div className="flex shrink-0 gap-2">
+                    <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée ajoutée à la banque")}>
+                      Valider
                     </Button>
-                    <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => deleteIdea(i.id), "Idée supprimée", "Supprimer cette idée ?")}>
-                      Supprimer
+                    <Button size="sm" variant="destructive" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "rejected", seenText(i)), "Idée refusée", `Refuser « ${i.title} » ?`)}>
+                      Refuser
                     </Button>
                   </div>
                 )}
-              </>
+                {tab === "bank" && more(i)}
+                {tab === "rejected" && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée remise dans la banque")}>
+                      Remettre dans la banque
+                    </Button>
+                    {more(i)}
+                  </div>
+                )}
+              </div>
             )}
           </li>
         ))}
@@ -260,44 +274,73 @@ export function DrawNow() {
   );
 }
 
-/** Extra tier list on top of the daily one, with its own lifetime (TTL, in real hours). */
-export function CreateExtraRound({ defaultTtl, minTtl, maxTtl, disabled }: { defaultTtl: number; minTtl: number; maxTtl: number; disabled: boolean }) {
+const RANDOM = "random";
+const DURATIONS = [1, 3, 6, 12, 24, 48, 72, 168];
+const durationLabel = (h: number) => (h < 48 ? `${h} h` : `${h / 24} j`);
+
+/** Extra tier list on top of the daily one: an idea from the bank (picked, or at random) and its lifetime (TTL, in real hours). */
+export function CreateExtraRound({ ideas, defaultTtl, minTtl, maxTtl }: { ideas: { id: string; title: string }[]; defaultTtl: number; minTtl: number; maxTtl: number }) {
   const { pending, run } = useModAction();
-  const [ttl, setTtl] = useState(String(defaultTtl));
-  const hours = Number(ttl);
-  const valid = Number.isInteger(hours) && hours >= minTtl && hours <= maxTtl;
+  const [idea, setIdea] = useState(RANDOM);
+  const [ttl, setTtl] = useState(defaultTtl);
+  const durations = DURATIONS.filter((h) => h >= minTtl && h <= maxTtl).map((h) => ({ value: h, label: durationLabel(h) }));
+  const ideaItems = [{ value: RANDOM, label: "Au hasard" }, ...ideas.map((i) => ({ value: i.id, label: i.title }))];
+  // the chosen idea left the bank (drawn, deleted…): back to random
+  const chosen = ideas.find((i) => i.id === idea);
+  const empty = ideas.length === 0;
+
+  const create = () =>
+    run(
+      () => createExtraRoundAction(ttl, chosen?.id),
+      "Tier list supplémentaire créée !",
+      chosen ? `Lancer « ${chosen.title} » pour ${durationLabel(ttl)} ?` : `Tirer une idée au hasard pour ${durationLabel(ttl)} ?`,
+    );
+
   return (
     <form
-      className="flex flex-col gap-2 rounded-lg border border-border p-3"
+      className="flex flex-col gap-3 rounded-lg border border-border p-3"
       onSubmit={(e) => {
         e.preventDefault();
-        if (valid) run(() => createExtraRoundAction(hours), "Tier list supplémentaire créée !", `Tirer une idée de la banque pour une tier list de ${hours} h ?`);
+        create();
       }}
     >
-      <Label htmlFor="extra-ttl">Tier list supplémentaire</Label>
-      <p className="text-xs text-muted-foreground">Une idée tirée au hasard dans la banque, en plus de celle du jour. Elle part dans les archives à la fin de sa durée.</p>
-      <div className="flex items-center gap-2">
-        <div className="w-24">
-          <Input
-            id="extra-ttl"
-            type="number"
-            inputMode="numeric"
-            min={minTtl}
-            max={maxTtl}
-            step={1}
-            value={ttl}
-            onChange={(e) => setTtl(e.target.value)}
-            aria-describedby="extra-ttl-unit"
-          />
+      <p className="font-medium">Tier list supplémentaire</p>
+      <div className="flex flex-col gap-1.5">
+        <Label id="extra-idea">Idée</Label>
+        <Select items={ideaItems} value={chosen ? idea : RANDOM} onValueChange={(v) => setIdea(String(v ?? RANDOM))} disabled={empty}>
+          <SelectTrigger aria-labelledby="extra-idea">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ideaItems.map((i) => (
+              <SelectItem key={i.value} value={i.value}>
+                {i.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-end gap-2">
+        <div className="flex flex-1 flex-col gap-1.5">
+          <Label id="extra-ttl">Durée</Label>
+          <Select items={durations} value={ttl} onValueChange={(v) => setTtl(Number(v ?? defaultTtl))}>
+            <SelectTrigger aria-labelledby="extra-ttl">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {durations.map((d) => (
+                <SelectItem key={d.value} value={d.value}>
+                  {d.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <span id="extra-ttl-unit" className="flex-1 text-sm text-muted-foreground">
-          heures ({minTtl}–{maxTtl})
-        </span>
-        <Button type="submit" disabled={pending || disabled || !valid}>
+        <Button type="submit" size="lg" disabled={pending || empty}>
           Créer
         </Button>
       </div>
-      {disabled && <p className="text-xs text-muted-foreground">La banque d&apos;idées est vide.</p>}
+      {empty && <p className="text-xs text-muted-foreground">La banque d&apos;idées est vide.</p>}
     </form>
   );
 }

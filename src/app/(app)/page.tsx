@@ -3,11 +3,12 @@ import { Search } from "lucide-react";
 import { pageUser } from "@/lib/permissions";
 import { ARCHIVE_PAGE, countArchived, decodeCursor, encodeCursor, listBoard, membersById, type BoardPost } from "@/server/board";
 import { countBank } from "@/server/ideas";
+import { getDrawHour } from "@/server/settings";
 import { boardVersion } from "@/server/live";
 import { SEARCH_MAX } from "@/lib/limits";
 import { PinnedPost, PostCard } from "@/components/board/post-card";
 import { LiveRefresh } from "@/components/board/live-refresh";
-import { DAILY_DRAW_HOUR, dayKey, formatDayFr } from "@/lib/dates";
+import { dayKey, formatDayFr, nextDrawHint } from "@/lib/dates";
 import { EmptyState } from "@/components/board/empty-state";
 
 const first = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v);
@@ -21,12 +22,13 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
 
   // version first: a change landing while the page renders is caught by the next poll
   const version = await boardVersion();
-  const [active, archives, total, bank] = await Promise.all([
+  const [active, archives, total, bank, drawHour] = await Promise.all([
     // every active tier list (daily + extras, and two dailies around a DST change), on the first page only
     q || before ? Promise.resolve([] as BoardPost[]) : listBoard(u.id, { scope: "active", now }),
     listBoard(u.id, { scope: "archived", q, before, now }),
     countArchived(q, now),
     countBank(),
+    getDrawHour(),
   ]);
   const members = await membersById([...new Set([...active, ...archives].flatMap((p) => p.top3))]);
   const last = archives.at(-1);
@@ -53,9 +55,7 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
           <div className="flex flex-col gap-3 rounded-3xl border-2 border-dashed border-board-edge p-6 text-center">
             <p className="font-display text-2xl font-extrabold">Pas de tier list en cours 😶</p>
             <p className="text-muted-foreground">
-              {bank === 0
-                ? "La banque d'idées est vide : la prochaine idée qui y entre lance la tier list du jour."
-                : `La prochaine tier list est tirée à ${DAILY_DRAW_HOUR} h.`}
+{nextDrawHint(bank, drawHour, now)}
             </p>
             <Link href="/ideas" className="mx-auto rounded-xl border-2 border-ink bg-primary px-5 py-3 font-display font-bold text-primary-foreground shadow-pop">
               Proposer une idée

@@ -195,4 +195,17 @@ describe("pages", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect((await res.json()).v).toMatch(/^[0-9a-f]{32}$/);
   });
+
+  it("live scopes: anyone active gets their ideas' version, only moderators get /mod's", async () => {
+    const ideas = await call("/api/live?scope=ideas", { client: member });
+    expect(ideas.status).toBe(200);
+    expect((await ideas.json()).v).toMatch(/^[0-9a-f]{32}$/);
+    expect((await call("/api/live?scope=mod", { client: member })).status).toBe(403);
+
+    const mod = await signUp("Modo live");
+    await pool.query(`update "user" set status = 'active', role = 'moderator' where email = $1`, [mod.email]);
+    const res = await call("/api/live?scope=mod", { client: mod });
+    expect(res.status).toBe(200);
+    expect((await res.json()).v).toMatch(/^[0-9a-f]{32}$/);
+  });
 });

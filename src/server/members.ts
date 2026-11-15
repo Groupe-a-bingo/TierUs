@@ -22,7 +22,7 @@ async function lockTarget(tx: Tx, targetId: string) {
  * Validate (or re-admit) / reject (or ban) a member, in one transaction:
  * - active: the member joins every tier list that is still active, so an
  *   account is never active while missing from the current tier lists.
- *   A profile photo is required (members rank each other by photo);
+ *   A profile photo is optional: members without one get a coloured tile;
  * - rejected: sessions are killed and the member leaves the active tier lists
  *   (their votes stop counting everywhere, see notBanned).
  * Moderators can't change themselves, an admin, or another moderator (admins can).
@@ -44,7 +44,6 @@ export async function setMemberStatus(
       if (target.id === actor.id) throw badRequest("Tu ne peux pas changer ton propre statut");
       if (target.role === "admin") throw forbidden("Impossible de modifier un admin");
       if (target.role === "moderator" && actor.role !== "admin") throw forbidden("Seul un admin peut gérer un modérateur");
-      if (status === "active" && !target.avatarFileId) throw badRequest("Une photo de profil est obligatoire pour valider ce membre");
     }
     if (target.status === status) throw badRequest(status === "active" ? "Ce membre est déjà validé" : "Ce membre est déjà refusé");
 

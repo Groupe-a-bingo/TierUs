@@ -27,19 +27,13 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers());
 
 const as = (u: { id: string } | null) => (signedIn = u?.id ?? null);
-const photo = async (userId: string) => {
-  const [f] = await db.insert(schema.files).values({ ownerId: userId, path: "avatars/x.webp", mime: "image/webp" }).returning();
-  await db.update(schema.user).set({ avatarFileId: f.id }).where(eq(schema.user.id, userId));
-};
 const statusOf = async (id: string) => (await db.select().from(schema.user).where(eq(schema.user.id, id)))[0];
 
 describe("moderation actions", () => {
-  it("a moderator validates a sign-up only once it has a photo", async () => {
+  it("a moderator validates a sign-up, even without a photo", async () => {
     const mod = await makeUser({ role: "moderator" });
     const newbie = await makeUser({ status: "pending" });
     as(mod);
-    expect(await setUserStatus(newbie.id, "active")).toEqual({ ok: false, error: expect.stringContaining("photo") });
-    await photo(newbie.id);
     expect(await setUserStatus(newbie.id, "active")).toEqual({ ok: true });
     expect((await statusOf(newbie.id)).status).toBe("active");
   });

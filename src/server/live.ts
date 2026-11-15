@@ -1,6 +1,9 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 
+/** Every app setting (idea validation, draw hour): shown on the board, /ideas and /mod. */
+const SETTINGS = sql.raw(`(select coalesce(string_agg(key || '=' || value::text, ',' order by key), '') from app_settings)`);
+
 /**
  * Cheap "version" fingerprint of everything that can change on a page.
  * Clients poll it and only re-render when it moves. Works behind any proxy
@@ -38,7 +41,38 @@ async function computeBoardVersion(): Promise<string> {
       -- a newcomer placed in an existing answer (complement): podiums move
       (select count(*) from placements),
       -- the bank counter ("empty bank" message)
-      (select count(*) from ideas where used_at is null and status = 'approved')
+      (select count(*) from ideas where used_at is null and status = 'approved'),
+      -- the draw hour ("next tier list at …")
+      ${SETTINGS}
+    )) as v
+  `);
+  return rows[0]?.v ?? "";
+}
+
+/** One idea's visible state: status, played, text (edits). */
+const IDEA_ROW = sql.raw(`id || status || coalesce(used_at::text, '') || md5(title || coalesce(description, ''))`);
+
+/** /mod: sign-ups and members, every idea, the validation switch, the log, the running tier lists. */
+async function computeModVersion(): Promise<string> {
+  const { rows } = await db.execute<{ v: string }>(sql`
+    select md5(concat_ws('|',
+      (select count(*) || coalesce(max(updated_at)::text, '') || coalesce(md5(string_agg(id || status || role, ',' order by id)), '') from "user"),
+      (select count(*) || coalesce(md5(string_agg(${IDEA_ROW}, ',' order by id)), '') from ideas),
+      ${SETTINGS},
+      (select count(*) || coalesce(max(created_at)::text, '') from audit_log),
+      (select count(*) || coalesce(max(created_at)::text, '') || coalesce(md5(string_agg(idea_id, ',' order by created_at, id)), '') from rounds),
+      (select count(*) from rounds where expires_at <= now())
+    )) as v
+  `);
+  return rows[0]?.v ?? "";
+}
+
+/** /ideas: the viewer's own ideas (reviewed, played, edited) and the validation switch. */
+async function computeIdeasVersion(userId: string): Promise<string> {
+  const { rows } = await db.execute<{ v: string }>(sql`
+    select md5(concat_ws('|',
+      (select count(*) || coalesce(md5(string_agg(${IDEA_ROW}, ',' order by id)), '') from ideas where author_id = ${userId}),
+      ${SETTINGS}
     )) as v
   `);
   return rows[0]?.v ?? "";
@@ -72,6 +106,8 @@ function cached(key: string, compute: () => Promise<string | null>): Promise<str
 
 export const roundVersion = (roundId: string) => cached(`r:${roundId}`, () => computeRoundVersion(roundId));
 export const boardVersion = async () => (await cached("board", computeBoardVersion)) ?? "";
+export const modVersion = async () => (await cached("mod", computeModVersion)) ?? "";
+export const ideasVersion = async (userId: string) => (await cached(`i:${userId}`, () => computeIdeasVersion(userId))) ?? "";
 
 /** Tests only: forget cached versions. */
 export function clearLiveCache() {
