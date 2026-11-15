@@ -7,7 +7,7 @@ import { guard } from "@/lib/guard";
 import { parseInput, runAction } from "@/lib/errors";
 import { IDEA_DESCRIPTION_MAX, IDEA_TITLE_MAX, IDEA_TITLE_MIN } from "@/lib/limits";
 import { catchUpDaily } from "@/server/rounds/catch-up";
-import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
+import { createIdea, editIdea, removeIdea, reviewIdea, requeueIdea } from "@/server/ideas";
 
 const ideaId = z.string().uuid();
 const ideaSchema = z.object({
@@ -83,5 +83,15 @@ export async function reviewIdeaAction(id: string, decision: "approved" | "rejec
     await reviewIdea(input.id, input.decision, input.seen, mod.id);
     revalidateIdeas();
     if (input.decision === "approved") await bankGrew(mod.id, "review");
+  });
+}
+
+/** Moderators send a bank or refused idea back to validation (a bank one leaves the draw until approved again). */
+export async function requeueIdeaAction(id: string) {
+  return runAction(async () => {
+    const mod = await guard("moderator", "modAction");
+    const { previous } = await requeueIdea(parseInput(ideaId, id), mod.id);
+    revalidateIdeas();
+    if (previous === "approved") revalidatePath("/"); // bank counter
   });
 }

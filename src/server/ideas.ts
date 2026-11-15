@@ -102,6 +102,26 @@ export async function reviewIdea(ideaId: string, decision: "approved" | "rejecte
   });
 }
 
+/**
+ * Moderator sends a bank or refused idea back to the ones waiting for
+ * validation (a bank idea leaves the draw). Returns the previous status.
+ */
+export async function requeueIdea(ideaId: string, actorId: string): Promise<{ title: string; previous: IdeaStatus }> {
+  return db.transaction(async (tx) => {
+    const [idea] = await tx
+      .select({ title: schema.ideas.title, status: schema.ideas.status, usedAt: schema.ideas.usedAt })
+      .from(schema.ideas)
+      .where(eq(schema.ideas.id, ideaId))
+      .for("update");
+    if (!idea) throw notFound("Idée introuvable");
+    if (idea.usedAt) throw badRequest("Cette idée a déjà été jouée");
+    if (idea.status === "pending") throw badRequest("Cette idée est déjà en validation");
+    await tx.update(schema.ideas).set({ status: "pending" }).where(eq(schema.ideas.id, ideaId));
+    await audit(actorId, "idea.requeue", "idea", ideaId, { title: idea.title, from: idea.status }, tx);
+    return { title: idea.title, previous: idea.status };
+  });
+}
+
 /** Returns the removed idea's previous status (did the bank shrink?). */
 export async function removeIdea(actor: Actor, ideaId: string): Promise<{ title: string; status: IdeaStatus }> {
   return db.transaction(async (tx) => {

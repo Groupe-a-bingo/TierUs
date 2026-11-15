@@ -138,35 +138,39 @@ function Ideas() {
 
 function Mod() {
   return (
-    <div className="flex flex-col gap-4 xl:grid xl:grid-cols-2 xl:items-start xl:gap-6">
-      <Bar className="h-8 w-40 lg:h-12 lg:w-72 xl:col-span-2" />
-      <CardShell>
-        <Bar className="h-6 w-56" />
-        <Bar className="h-4 w-full" />
-        <Bar className="h-24 w-full" />
-      </CardShell>
-      <CardShell className="xl:row-span-3">
-        <Bar className="h-6 w-24" />
-        <div className="flex flex-wrap gap-2">
-          {[0, 1, 2, 3].map((i) => (
-            <Bar key={i} className="h-8 w-24" />
+    <div className="flex flex-col gap-4 xl:gap-6">
+      <Bar className="h-8 w-40 lg:h-12 lg:w-72" />
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:gap-6">
+        <div className="contents xl:flex xl:min-w-0 xl:flex-1 xl:flex-col xl:gap-6">
+          <CardShell className="order-1 xl:order-none">
+            <Bar className="h-6 w-56" />
+            <Bar className="h-4 w-full" />
+            <Bar className="h-24 w-full" />
+          </CardShell>
+          {[0, 1].map((i) => (
+            <CardShell key={i} className={i ? "order-4 xl:order-none" : "order-2 xl:order-none"}>
+              <Bar className="h-6 w-40" />
+              {[0, 1, 2].map((j) => (
+                <div key={j} className="flex items-center gap-3">
+                  <Bar className="size-10 rounded-xl" />
+                  <Bar className="h-4 flex-1" />
+                </div>
+              ))}
+            </CardShell>
           ))}
         </div>
-        {[0, 1, 2, 3, 4].map((i) => (
-          <Bar key={i} className="h-16 w-full" />
-        ))}
-      </CardShell>
-      {[0, 1].map((i) => (
-        <CardShell key={i}>
-          <Bar className="h-6 w-40" />
-          {[0, 1, 2].map((j) => (
-            <div key={j} className="flex items-center gap-3">
-              <Bar className="size-10 rounded-xl" />
-              <Bar className="h-4 flex-1" />
-            </div>
+        <CardShell className="order-3 xl:order-none xl:min-w-0 xl:flex-1">
+          <Bar className="h-6 w-24" />
+          <div className="flex flex-wrap gap-2">
+            {[0, 1, 2, 3].map((i) => (
+              <Bar key={i} className="h-8 w-24" />
+            ))}
+          </div>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Bar key={i} className="h-16 w-full" />
           ))}
         </CardShell>
-      ))}
+      </div>
     </div>
   );
 }

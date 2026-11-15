@@ -7,6 +7,7 @@ export const AUDIT_ACTIONS = {
   "idea.delete": "Idée supprimée",
   "idea.approve": "Idée validée",
   "idea.reject": "Idée refusée",
+  "idea.requeue": "Idée déplacée en validation",
   "user.approve": "Membre validé",
   "user.reject": "Membre refusé",
   "user.role": "Rôle changé",

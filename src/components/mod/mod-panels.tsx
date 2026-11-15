@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { cva } from "class-variance-authority";
-import { Ban, MoreHorizontal, Pencil, ShieldMinus, ShieldPlus, Trash2, Undo2 } from "lucide-react";
+import { Ban, Hourglass, ListPlus, MoreHorizontal, Pencil, ShieldMinus, ShieldPlus, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { IdeaForm } from "@/components/ideas/idea-form";
 import { setDrawHourAction, setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
-import { deleteIdea, reviewIdeaAction } from "@/app/actions/ideas";
+import { deleteIdea, reviewIdeaAction, requeueIdeaAction } from "@/app/actions/ideas";
 import { createExtraRoundAction, drawNowAction } from "@/app/actions/rounds";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -228,6 +228,16 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
           <Pencil />
           Modifier
         </DropdownMenuItem>
+        {tab === "rejected" && (
+          <DropdownMenuItem onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée déplacée dans la banque")}>
+            <ListPlus />
+            Déplacer dans la banque
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={() => run(() => requeueIdeaAction(i.id), "Idée déplacée en validation")}>
+          <Hourglass />
+          Déplacer en validation
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={() => remove(i)}>
           <Trash2 />
@@ -238,7 +248,7 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
   );
 
   return (
-    <div className="flex flex-col gap-3 xl:h-full">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer les idées">
         {TABS.map((t) => (
           <Button key={t.tab} size="sm" variant={tab === t.tab ? "default" : "outline"} aria-pressed={tab === t.tab} onClick={() => setTab(t.tab)}>
@@ -247,7 +257,7 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
         ))}
       </div>
       {ideas.length === 0 && <EmptyState>{TABS.find((t) => t.tab === tab)!.empty}</EmptyState>}
-      <ul className="flex max-h-list flex-col gap-2 overflow-y-auto pr-1 scrollbar-theme xl:max-h-none xl:min-h-0 xl:flex-1">
+      <ul className="flex flex-col gap-2">
         {ideas.map((i) => (
           <li key={i.id} className={ideaRow({ played: tab === "played" })}>
             {editing === i.id ? (
@@ -269,15 +279,7 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
                     </Button>
                   </div>
                 )}
-                {tab === "bank" && more(i)}
-                {tab === "rejected" && (
-                  <div className="ml-auto flex shrink-0 items-center gap-1">
-                    <Button size="sm" disabled={pending} onClick={() => run(() => reviewIdeaAction(i.id, "approved", seenText(i)), "Idée remise dans la banque")}>
-                      Remettre dans la banque
-                    </Button>
-                    {more(i)}
-                  </div>
-                )}
+                {(tab === "bank" || tab === "rejected") && more(i)}
               </div>
             )}
           </li>

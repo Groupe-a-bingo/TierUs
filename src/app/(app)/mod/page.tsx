@@ -80,96 +80,98 @@ export default async function ModPage() {
   const isAdmin = me.role === "admin";
 
   return (
-    <div className="flex flex-col gap-4 xl:grid xl:grid-cols-2 xl:items-start xl:gap-6">
+    <div className="flex flex-col gap-4 xl:gap-6">
       <LiveRefresh scope="mod" initial={version} />
-      <h1 className="text-2xl font-bold xl:col-span-2 lg:text-5xl lg:font-extrabold">Modération</h1>
+      <h1 className="text-2xl font-bold lg:text-5xl lg:font-extrabold">Modération</h1>
 
-      <Card className="xl:col-start-1">
-        <CardHeader>
-          <CardTitle>Tier lists en cours ({active.length})</CardTitle>
-          <CardDescription>
-            Tirage automatique chaque jour à {drawHour} h, pour {DEFAULT_TTL_HOURS} h. {available} idée(s) disponible(s) dans la banque.
-            {available === 0 && ` ⚠️ ${nextDrawHint(0, drawHour, now)}`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-4">
-            {active.length > 0 && (
-              <ul className="flex flex-col gap-1 text-sm">
-                {active.map(({ round, idea }) => (
-                  <li key={round.id}>
-                    <Link href={`/r/${round.id}`} className="underline">
-                      {idea.title}
-                    </Link>{" "}
-                    <span className="text-muted-foreground">
-                      · {round.kind === "daily" ? "du jour" : "bonus"} · <Countdown expiresAt={round.expiresAt.toISOString()} />
-                    </span>
+      {/* phone: one column (ideas after sign-ups); desktop: 2 independent columns, each as tall as its content */}
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:gap-6">
+        <div className="contents xl:flex xl:min-w-0 xl:flex-1 xl:flex-col xl:gap-6">
+          <Card className="order-1 xl:order-none">
+            <CardHeader>
+              <CardTitle>Tier lists en cours ({active.length})</CardTitle>
+              <CardDescription>
+                Tirage automatique chaque jour à {drawHour} h, pour {DEFAULT_TTL_HOURS} h. {available} idée(s) disponible(s) dans la banque.
+                {available === 0 && ` ⚠️ ${nextDrawHint(0, drawHour, now)}`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-4">
+                {active.length > 0 && (
+                  <ul className="flex flex-col gap-1 text-sm">
+                    {active.map(({ round, idea }) => (
+                      <li key={round.id}>
+                        <Link href={`/r/${round.id}`} className="underline">
+                          {idea.title}
+                        </Link>{" "}
+                        <span className="text-muted-foreground">
+                          · {round.kind === "daily" ? "du jour" : "bonus"} · <Countdown expiresAt={round.expiresAt.toISOString()} />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {dueKey && !daily && <DrawNow />}
+                <CreateExtraRound ideas={bank.ideas.map((i) => ({ id: i.id, title: i.title }))} defaultTtl={DEFAULT_TTL_HOURS} minTtl={MIN_TTL_HOURS} maxTtl={MAX_TTL_HOURS} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="order-2 xl:order-none">
+            <CardHeader>
+              <CardTitle>Inscriptions en attente ({pending.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PendingUsers users={pending} />
+            </CardContent>
+          </Card>
+
+          <Card className="order-4 xl:order-none">
+            <CardHeader>
+              <CardTitle>Membres ({members.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Members users={members} viewerId={me.id} viewerIsAdmin={isAdmin} />
+            </CardContent>
+          </Card>
+
+          {isAdmin && (
+            <Card className="order-5 xl:order-none">
+              <CardHeader>
+                <CardTitle>Réglages</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <AdminSettings drawHour={drawHour} validation={validation} waiting={pendingIdeas.count} />
+              </CardContent>
+            </Card>
+          )}
+
+          <Card className="order-6 xl:order-none">
+            <CardHeader>
+              <CardTitle>Journal</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {logs.length === 0 && <EmptyState>Aucune action pour l&apos;instant.</EmptyState>}
+              <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+                {logs.map((l) => (
+                  <li key={l.id}>
+                    {new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(l.at)} · {l.actor ?? "Automatique"} · {auditLabel(l.action)}
                   </li>
                 ))}
               </ul>
-            )}
-            {dueKey && !daily && <DrawNow />}
-            <CreateExtraRound ideas={bank.ideas.map((i) => ({ id: i.id, title: i.title }))} defaultTtl={DEFAULT_TTL_HOURS} minTtl={MIN_TTL_HOURS} maxTtl={MAX_TTL_HOURS} />
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
 
-      <Card className="xl:col-start-1">
-        <CardHeader>
-          <CardTitle>Inscriptions en attente ({pending.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PendingUsers users={pending} />
-        </CardContent>
-      </Card>
-
-      {/* desktop: the right column, as tall as the left one (never stretches its rows); the list scrolls inside */}
-      <div className={isAdmin ? "xl:col-start-2 xl:row-span-5 xl:row-start-2 xl:self-stretch xl:grid-fill" : "xl:col-start-2 xl:row-span-4 xl:row-start-2 xl:self-stretch xl:grid-fill"}>
-        <Card className="xl:sticky xl:top-10 xl:max-h-sticky">
+        <Card className="order-3 xl:order-none xl:min-w-0 xl:flex-1">
           <CardHeader>
             <CardTitle>Idées</CardTitle>
           </CardHeader>
-          <CardContent className="xl:min-h-0 xl:flex-1">
+          <CardContent>
             <IdeasPanel lists={{ pending: pendingIdeas, bank, played, rejected }} />
           </CardContent>
         </Card>
       </div>
-
-      <Card className="xl:col-start-1">
-        <CardHeader>
-          <CardTitle>Membres ({members.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Members users={members} viewerId={me.id} viewerIsAdmin={isAdmin} />
-        </CardContent>
-      </Card>
-
-      {isAdmin && (
-        <Card className="xl:col-start-1">
-          <CardHeader>
-            <CardTitle>Réglages</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <AdminSettings drawHour={drawHour} validation={validation} waiting={pendingIdeas.count} />
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="xl:col-start-1">
-        <CardHeader>
-          <CardTitle>Journal</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {logs.length === 0 && <EmptyState>Aucune action pour l&apos;instant.</EmptyState>}
-          <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-            {logs.map((l) => (
-              <li key={l.id}>
-                {new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(l.at)} · {l.actor ?? "Automatique"} · {auditLabel(l.action)}
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
     </div>
   );
 }

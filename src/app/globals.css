@@ -255,22 +255,9 @@ html {
   width: max(calc(100% * 1152 / 1650), min(100%, 60rem));
 }
 
-/* sticky side card (/mod ideas): as tall as its content, at most the screen and the column it sits in */
-@utility max-h-sticky {
-  max-height: min(100%, calc(100dvh - 6.5rem));
-}
-
 /* a long list inside a card scrolls on its own instead of stretching the page */
 @utility max-h-list {
   max-height: 70dvh;
-}
-
-/*
- * A grid item that never sizes its rows: it takes the height of the rows it
- * spans (set by its neighbours) instead of pushing them apart (/mod's ideas column).
- */
-@utility grid-fill {
-  contain: size;
 }
 
 /* desktop post page: fills the viewport exactly (main has pt-10 + pb-16) */

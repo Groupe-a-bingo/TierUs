@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { createIdea, editIdea, removeIdea, reviewIdea } from "@/server/ideas";
+import { createIdea, editIdea, removeIdea, reviewIdea, requeueIdea } from "@/server/ideas";
 import { getIdeaValidation, setIdeaValidation } from "@/server/settings";
 import { rerollRound } from "@/server/rounds/draw";
 import { drawActive, makeUser, resetDb, waitUntilBlockedOnLock } from "../support/factories";
@@ -168,6 +168,23 @@ describe("idea validation", () => {
     await expect(review(idea.id, "approved")).rejects.toMatchObject({ status: 400 });
     await expect(review(idea.id, "rejected")).rejects.toMatchObject({ status: 400 });
     await expect(reviewIdea(crypto.randomUUID(), "approved", { title: "x", description: null })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("a moderator can send a bank or refused idea back to validation, not a played one", async () => {
+    const mod = await makeUser({ role: "moderator" });
+    const a = await makeUser();
+    const idea = await ideaBy(a.id, "Trop vague");
+    expect(await requeueIdea(idea.id, mod.id)).toMatchObject({ previous: "approved" });
+    expect((await get(idea.id)).status).toBe("pending");
+    expect((await drawActive()).status).toBe("empty_bank");
+    await expect(requeueIdea(idea.id, mod.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("déjà en validation") });
+    await review(idea.id, "rejected");
+    expect(await requeueIdea(idea.id, mod.id)).toMatchObject({ previous: "rejected" });
+    await review(idea.id, "approved");
+    expect((await drawActive()).status).toBe("created");
+    await expect(requeueIdea(idea.id, mod.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("jouée") });
+    expect((await get(idea.id)).status).toBe("approved");
+    await expect(requeueIdea(crypto.randomUUID(), mod.id)).rejects.toMatchObject({ status: 404 });
   });
 
   it("turning validation off releases the waiting ideas into the bank (refused ones stay refused)", async () => {
