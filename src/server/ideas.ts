@@ -104,10 +104,13 @@ export async function reviewIdea(ideaId: string, decision: "approved" | "rejecte
 
 /**
  * Moderator sends a bank or refused idea back to the ones waiting for
- * validation (a bank idea leaves the draw). Returns the previous status.
+ * validation (a bank idea leaves the draw). Only while validation is on:
+ * otherwise nobody would review it. Returns the previous status.
  */
 export async function requeueIdea(ideaId: string, actorId: string): Promise<{ title: string; previous: IdeaStatus }> {
   return db.transaction(async (tx) => {
+    // shared lock: validation can't be turned off (releasing the queue) halfway through
+    if (!(await getIdeaValidation(tx, { lock: true }))) throw badRequest("Active la validation pour remettre une idée en attente");
     const [idea] = await tx
       .select({ title: schema.ideas.title, status: schema.ideas.status, usedAt: schema.ideas.usedAt })
       .from(schema.ideas)

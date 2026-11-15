@@ -168,7 +168,7 @@ export default async function ModPage() {
             <CardTitle>Idées</CardTitle>
           </CardHeader>
           <CardContent>
-            <IdeasPanel lists={{ pending: pendingIdeas, bank, played, rejected }} />
+            <IdeasPanel lists={{ pending: pendingIdeas, bank, played, rejected }} validation={validation} />
           </CardContent>
         </Card>
       </div>

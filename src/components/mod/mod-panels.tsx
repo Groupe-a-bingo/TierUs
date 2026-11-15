@@ -194,7 +194,7 @@ const TABS: { tab: IdeaTab; label: string; empty: string }[] = [
  * Every idea, by state. The bank only holds the drawable ones (approved, never
  * played): waiting and refused ideas have their own tab.
  */
-export function IdeasPanel({ lists }: { lists: IdeaLists }) {
+export function IdeasPanel({ lists, validation }: { lists: IdeaLists; validation: boolean }) {
   const { pending, run } = useModAction();
   const [editing, setEditing] = useState<string | null>(null);
   const [tab, setTab] = useState<IdeaTab>(lists.pending.count > 0 ? "pending" : "bank");
@@ -217,10 +217,12 @@ export function IdeasPanel({ lists }: { lists: IdeaLists }) {
             Déplacer dans la banque
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem onClick={() => run(() => requeueIdeaAction(i.id), "Idée déplacée en validation")}>
-          <Hourglass />
-          Déplacer en validation
-        </DropdownMenuItem>
+        {validation && (
+          <DropdownMenuItem onClick={() => run(() => requeueIdeaAction(i.id), "Idée déplacée en validation")}>
+            <Hourglass />
+            Déplacer en validation
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={() => remove(i)}>
           <Trash2 />

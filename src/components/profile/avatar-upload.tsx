@@ -13,12 +13,15 @@ import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/limits";
  * square (a few hundred KB), still checked against MAX_UPLOAD_BYTES.
  */
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
+/** Windows often gives .heic files no type: trust the extension. */
+const HEIC = /\.(heic|heif)$/i;
 
 export function AvatarUpload({ name, fileId }: { name: string; fileId: string | null }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
   const [source, setSource] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
 
   // the object URL lives as long as the cropper shows it
   useEffect(() => {
@@ -26,17 +29,18 @@ export function AvatarUpload({ name, fileId }: { name: string; fileId: string | 
     return () => URL.revokeObjectURL(source);
   }, [source]);
 
-  const onFile = (file: File | undefined) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
+  const onFile = (f: File | undefined) => {
+    if (!f) return;
+    if (!f.type.startsWith("image/") && !HEIC.test(f.name)) {
       toast.error("Choisis une image");
       return;
     }
-    if (file.size > MAX_SOURCE_BYTES) {
+    if (f.size > MAX_SOURCE_BYTES) {
       toast.error("Image trop lourde (25 Mo max)");
       return;
     }
-    setSource(URL.createObjectURL(file));
+    setFile(f);
+    setSource(URL.createObjectURL(f));
   };
 
   const upload = (blob: Blob) => {
@@ -68,7 +72,7 @@ export function AvatarUpload({ name, fileId }: { name: string; fileId: string | 
         <input
           ref={input}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           className="hidden"
           onChange={(e) => {
             onFile(e.target.files?.[0]);
@@ -79,7 +83,8 @@ export function AvatarUpload({ name, fileId }: { name: string; fileId: string | 
           {pending ? "Envoi…" : fileId ? "Changer ma photo" : "Ajouter ma photo"}
         </Button>
       </div>
-      {source && <AvatarCropper src={source} onCancel={() => setSource(null)} onConfirm={upload} />}
+      {/* a photo the browser can't decode (HEIC on Chrome/Firefox) goes as is: the server converts and crops it */}
+      {source && <AvatarCropper src={source} onCancel={() => setSource(null)} onConfirm={upload} onUnreadable={() => file && upload(file)} />}
     </div>
   );
 }

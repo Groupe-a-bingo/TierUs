@@ -14,7 +14,7 @@ vi.mock("@/lib/auth", () => ({
 
 const { db, schema } = await import("@/db");
 const { setIdeaValidationAction, setUserRole, setUserStatus } = await import("@/app/actions/moderation");
-const { addIdea } = await import("@/app/actions/ideas");
+const { addIdea, deleteIdea, updateIdea } = await import("@/app/actions/ideas");
 const { addComment, deleteComment, setReaction } = await import("@/app/actions/social");
 const { createExtraRoundAction, submitTierListAction } = await import("@/app/actions/rounds");
 const { getTargets } = await import("@/server/rounds/queries");
@@ -72,6 +72,24 @@ describe("moderation actions", () => {
     expect(await setUserStatus(target.id, "active")).toEqual({ ok: false, error: "Accès refusé" });
     as(null);
     expect(await setUserStatus(target.id, "active")).toEqual({ ok: false, error: "Non connecté" });
+  });
+});
+
+describe("idea edit quota", () => {
+  it("moderators edit and delete ideas on the moderator quota, members on theirs (30 an hour)", async () => {
+    const mod = await makeUser({ role: "moderator" });
+    const member = await makeUser();
+    const ideas = await db
+      .insert(schema.ideas)
+      .values(Array.from({ length: 31 }, (_, i) => ({ title: `Idée ${i}`, authorId: member.id })))
+      .returning({ id: schema.ideas.id });
+    as(mod);
+    for (const i of ideas) expect(await deleteIdea(i.id)).toEqual({ ok: true });
+
+    const [own] = await db.insert(schema.ideas).values({ title: "La mienne", authorId: member.id }).returning({ id: schema.ideas.id });
+    as(member);
+    for (let n = 0; n < 30; n++) expect(await updateIdea(own.id, { title: `Version ${n}` })).toMatchObject({ ok: true });
+    expect(await updateIdea(own.id, { title: "Version 31" })).toMatchObject({ ok: false });
   });
 });
 

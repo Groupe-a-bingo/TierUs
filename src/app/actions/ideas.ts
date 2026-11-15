@@ -48,9 +48,9 @@ export async function addIdea(input: { title: string; description?: string }) {
   });
 }
 
-/** Author or moderator, while the idea has never been played. */
+/** Author or moderator, while the idea has never been played (moderators on the moderator quota, e.g. cleaning the bank). */
 async function ideaActor() {
-  const u = await guard("active", "ideaEdit");
+  const u = await guard("active", (u) => (isModerator(u) ? "modAction" : "ideaEdit"));
   return { id: u.id, isModerator: isModerator(u) };
 }
 

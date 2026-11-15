@@ -42,9 +42,20 @@ async function cropToBlob(src: string, area: Area): Promise<Blob> {
 
 /**
  * Square crop + zoom of a freshly picked photo (drag / pinch / wheel to frame it).
- * `src` is an object URL owned by the caller; `onCancel` closes without sending.
+ * `src` is an object URL owned by the caller; `onCancel` closes without sending;
+ * `onUnreadable` takes over when the browser can't decode the photo.
  */
-export function AvatarCropper({ src, onCancel, onConfirm }: { src: string; onCancel: () => void; onConfirm: (blob: Blob) => void }) {
+export function AvatarCropper({
+  src,
+  onCancel,
+  onConfirm,
+  onUnreadable,
+}: {
+  src: string;
+  onCancel: () => void;
+  onConfirm: (blob: Blob) => void;
+  onUnreadable: () => void;
+}) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [area, setArea] = useState<Area | null>(null);
@@ -79,8 +90,7 @@ export function AvatarCropper({ src, onCancel, onConfirm }: { src: string; onCan
             onCropChange={setCrop}
             onZoomChange={setZoom}
             onCropComplete={(_, pixels) => setArea(pixels)}
-            onMediaLoaded={() => setFailed(false)}
-            mediaProps={{ onError: () => setFailed(true) }}
+            mediaProps={{ onError: onUnreadable }}
           />
         </div>
         <Slider
