@@ -26,14 +26,11 @@ export const countBank = () => countIdeas();
  * validation off takes the setting FOR UPDATE and then updates ideas: same
  * order, so the two can't deadlock.
  */
-async function lockValidation(actor: Actor, tx: Tx): Promise<boolean> {
-  // moderators skip the queue: no need to wait for the setting
-  return actor.isModerator ? false : getIdeaValidation(tx, { lock: true });
-}
+const lockValidation = (tx: Tx): Promise<boolean> => getIdeaValidation(tx, { lock: true });
 
 export async function createIdea(actor: Actor, input: IdeaInput): Promise<IdeaStatus> {
   return db.transaction(async (tx) => {
-    const status = newIdeaStatus(actor, await lockValidation(actor, tx));
+    const status = newIdeaStatus(await lockValidation(tx));
     await tx.insert(schema.ideas).values({ title: input.title, description: input.description, authorId: actor.id, status });
     return status;
   });
@@ -60,7 +57,7 @@ async function lockEditableIdea(tx: Tx, actor: Actor, ideaId: string, verb: "mod
 /** Returns the status before and after, so callers know whether the idea just entered the bank. */
 export async function editIdea(actor: Actor, ideaId: string, input: IdeaInput): Promise<{ status: IdeaStatus; previous: IdeaStatus }> {
   return db.transaction(async (tx) => {
-    const validation = await lockValidation(actor, tx);
+    const validation = await lockValidation(tx);
     const idea = await lockEditableIdea(tx, actor, ideaId, "modifiée");
     const status = statusAfterEdit(actor, idea, validation);
     await tx.update(schema.ideas).set({ title: input.title, description: input.description, status }).where(eq(schema.ideas.id, ideaId));
