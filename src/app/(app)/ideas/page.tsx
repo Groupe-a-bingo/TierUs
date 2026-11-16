@@ -24,8 +24,7 @@ export default async function IdeasPage() {
     getIdeaValidation(),
     getDrawHour(),
   ]);
-  // moderators' own ideas skip the queue
-  const needsReview = validation && !isModerator(u);
+  const needsReview = validation;
 
   return (
     <div className="flex flex-col gap-6 xl:grid xl:grid-cols-2 xl:items-start xl:gap-10">

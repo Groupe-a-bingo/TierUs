@@ -72,14 +72,25 @@ describe("idea validation", () => {
     expect(idea).toMatchObject({ status: "approved", authorId: a.id });
   });
 
-  it("when on, members' ideas wait for a moderator; moderators' ideas skip the queue", async () => {
+  it("when on, every new idea waits for a moderator, moderators' and admins' too", async () => {
     const admin = await makeUser({ role: "admin" });
     const a = await makeUser();
     const mod = await makeUser({ role: "moderator" });
     await setIdeaValidation(true, admin.id);
     expect(await getIdeaValidation()).toBe(true);
     expect(await createIdea(as(a), { title: "De membre", description: null })).toBe("pending");
-    expect(await createIdea(as(mod, true), { title: "De modo", description: null })).toBe("approved");
+    expect(await createIdea(as(mod, true), { title: "De modo", description: null })).toBe("pending");
+    expect(await createIdea(as(admin, true), { title: "D'admin", description: null })).toBe("pending");
+  });
+
+  it("a moderator can approve their own idea", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const mod = await makeUser({ role: "moderator" });
+    await setIdeaValidation(true, admin.id);
+    expect(await createIdea(as(mod, true), { title: "La mienne", description: null })).toBe("pending");
+    const [idea] = await db.select().from(schema.ideas).where(eq(schema.ideas.title, "La mienne"));
+    await reviewIdea(idea.id, "approved", { title: idea.title, description: idea.description }, mod.id);
+    expect((await get(idea.id)).status).toBe("approved");
   });
 
   it("a pending or refused idea is never drawn, an approved one is", async () => {
