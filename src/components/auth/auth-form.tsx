@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { authClient } from "@/lib/auth-client";
@@ -86,9 +87,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="password">Mot de passe</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 required
                 minLength={mode === "signup" ? 10 : 1}
                 maxLength={128}
