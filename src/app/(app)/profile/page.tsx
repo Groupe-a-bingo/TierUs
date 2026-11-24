@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { AvatarUpload } from "@/components/profile/avatar-upload";
 import { NameForm } from "@/components/profile/name-form";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { DeleteAccount } from "@/components/profile/delete-account";
 import { answeredOnTimeCount } from "@/server/counter";
 
 export default async function ProfilePage() {
@@ -32,7 +33,10 @@ export default async function ProfilePage() {
           </div>
         </CardContent>
       </Card>
-      <SignOutButton />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SignOutButton />
+        <DeleteAccount />
+      </div>
     </div>
   );
 }

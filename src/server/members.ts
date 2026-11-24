@@ -64,6 +64,23 @@ export async function setMemberStatus(
   });
 }
 
+/**
+ * Permanently delete a member (e.g. a user deleting their own account).
+ * Everything that references the user row cascades (sessions, account, files,
+ * tier-list memberships, submissions, placements, comments, reactions); their
+ * ideas are kept but detached (author set to null), same for the audit log.
+ * Runs under the membership lock so no draw snapshots members meanwhile.
+ */
+export async function deleteMember(targetId: string, now = new Date()) {
+  await db.transaction(async (tx) => {
+    await lockMembership(tx);
+    await lockTarget(tx, targetId); // 404 if already gone
+    // leave the active tier lists first, so it's the same path as a ban
+    await removeMemberFromActiveRounds(targetId, tx, now);
+    await tx.delete(user).where(eq(user.id, targetId));
+  });
+}
+
 /** Admin only (checked by the caller): promote a validated member to moderator, or back. */
 export async function setMemberRole(targetId: string, role: "member" | "moderator", actorId: string) {
   await db.transaction(async (tx) => {

