@@ -4,7 +4,8 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { guard } from "@/lib/guard";
 import { parseInput, runAction } from "@/lib/errors";
-import { setMemberRole, setMemberStatus } from "@/server/members";
+import { renameMember, setMemberRole, setMemberStatus } from "@/server/members";
+import { nameSchema } from "@/lib/names";
 import { setDrawHour, setIdeaValidation } from "@/server/settings";
 import { catchUpDaily } from "@/server/rounds/catch-up";
 
@@ -25,6 +26,15 @@ export async function setUserRole(id: string, role: "member" | "moderator") {
     const admin = await guard("admin", "modAction");
     await setMemberRole(parseInput(userId, id), parseInput(z.enum(["member", "moderator"]), role), admin.id);
     revalidatePath("/mod");
+  });
+}
+
+/** Rename a member. Permission rules (own name, admins, moderators) live in renameMember. */
+export async function renameUser(id: string, name: string) {
+  return runAction(async () => {
+    const mod = await guard("moderator", "modAction");
+    await renameMember(parseInput(userId, id), parseInput(nameSchema, name), mod);
+    revalidatePath("/", "layout");
   });
 }
 

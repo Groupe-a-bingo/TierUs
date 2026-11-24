@@ -75,3 +75,20 @@ export async function setMemberRole(targetId: string, role: "member" | "moderato
     await audit(actorId, "user.role", "user", targetId, { from: target.role, to: role }, tx);
   });
 }
+
+/**
+ * Rename a member from /mod. Same rules as the status: not yourself (that's
+ * the profile page), never an admin, a moderator only by an admin.
+ */
+export async function renameMember(targetId: string, name: string, actor: NonNullable<MemberActor>) {
+  await db.transaction(async (tx) => {
+    const target = await lockTarget(tx, targetId);
+    if (target.id === actor.id) throw badRequest("Change ton pseudo depuis ton profil");
+    if (target.role === "admin") throw forbidden("Impossible de modifier un admin");
+    if (target.role === "moderator" && actor.role !== "admin") throw forbidden("Seul un admin peut gérer un modérateur");
+    if (target.name === name) return;
+    // updated_at moves the board's live version: other members see the new name
+    await tx.update(user).set({ name, updatedAt: new Date() }).where(eq(user.id, targetId));
+    await audit(actor.id, "user.rename", "user", targetId, { from: target.name, to: name }, tx);
+  });
+}

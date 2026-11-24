@@ -20,9 +20,9 @@ const memberCols = {
   avatarFileId: schema.user.avatarFileId,
   role: schema.user.role,
   status: schema.user.status,
+  // moderators only: the email helps recognise who's who
+  email: schema.user.email,
 };
-/** Sign-ups only: the email helps recognise who's asking. Validated members' emails never leave the server. */
-const signUpCols = { ...memberCols, email: schema.user.email };
 /** Each idea tab lists at most this many (waiting: oldest first, others: newest first). */
 const IDEA_LIMIT = 500;
 
@@ -57,7 +57,7 @@ export default async function ModPage() {
   // version first: a change landing while the page renders is caught by the next poll
   const version = await modVersion();
   const [pending, members, pendingIdeas, bank, played, rejected, active, daily, logs, validation] = await Promise.all([
-    db.select(signUpCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
+    db.select(memberCols).from(schema.user).where(eq(schema.user.status, "pending")).orderBy(asc(schema.user.createdAt)),
     db.select(memberCols).from(schema.user).where(ne(schema.user.status, "pending")).orderBy(asc(schema.user.name)),
     ideaTab(IDEA_TABS.pending),
     ideaTab(IDEA_TABS.bank),
