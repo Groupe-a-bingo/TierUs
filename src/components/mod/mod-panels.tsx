@@ -2,17 +2,20 @@
 
 import { useState } from "react";
 import { cva } from "class-variance-authority";
-import { Ban, Hourglass, ListPlus, MoreHorizontal, Pencil, ShieldMinus, ShieldPlus, Trash2, Undo2 } from "lucide-react";
+import { Ban, Hourglass, ListPlus, MoreHorizontal, Pencil, PenLine, ShieldMinus, ShieldPlus, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { IdeaForm } from "@/components/ideas/idea-form";
-import { setDrawHourAction, setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
+import { renameUser, setDrawHourAction, setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
 import { deleteIdea, reviewIdeaAction, requeueIdeaAction } from "@/app/actions/ideas";
 import { createExtraRoundAction, drawNowAction } from "@/app/actions/rounds";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { NAME_MAX, NAME_MIN } from "@/lib/limits";
 import { EmptyState } from "@/components/board/empty-state";
 import { useServerAction } from "@/hooks/use-server-action";
 import type { Member } from "@/lib/types";
@@ -30,9 +33,9 @@ function useModAction() {
   };
 }
 
-type ModMember = Member & { role: string; status: string };
+type ModMember = Member & { role: string; status: string; email: string };
 
-export function PendingUsers({ users }: { users: (ModMember & { email: string })[] }) {
+export function PendingUsers({ users }: { users: ModMember[] }) {
   const { pending, run } = useModAction();
   if (!users.length) return <EmptyState>Aucune inscription en attente.</EmptyState>;
   return (
@@ -67,57 +70,106 @@ const roleLabel: Record<string, string> = { moderator: "modo", admin: "admin" };
 /** Secondary actions sit behind a "⋯" menu: the row only shows who the member is. */
 export function Members({ users, viewerId, viewerIsAdmin }: { users: ModMember[]; viewerId: string; viewerIsAdmin: boolean }) {
   const { pending, run } = useModAction();
+  const [renaming, setRenaming] = useState<ModMember | null>(null);
   return (
-    <ul className="flex max-h-list flex-col gap-3 overflow-y-auto pr-1 scrollbar-theme">
-      {users.map((u) => {
-        const canEditRole = viewerIsAdmin && u.status === "active";
-        return (
-          <li key={u.id} className="flex items-center gap-3">
-            <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" />
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 truncate font-medium">
-                {u.name}
-                {u.role !== "member" && <Badge variant="secondary">{roleLabel[u.role] ?? u.role}</Badge>}
-                {u.status === "rejected" && <Badge variant="destructive">banni</Badge>}
-              </p>
-            </div>
-            {u.id !== viewerId && u.role !== "admin" && (
-              <DropdownMenu>
-                <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={pending} aria-label={`Actions pour ${u.name}`} />}>
-                  <MoreHorizontal />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {canEditRole &&
-                    (u.role === "moderator" ? (
-                      <DropdownMenuItem onClick={() => run(() => setUserRole(u.id, "member"), `${u.name} n'est plus modo`)}>
-                        <ShieldMinus />
-                        Retirer le rôle de modo
+    <>
+      <ul className="flex max-h-list flex-col gap-3 overflow-y-auto pr-1 scrollbar-theme">
+        {users.map((u) => {
+          const canEditRole = viewerIsAdmin && u.status === "active";
+          // same rule as the server: a moderator is only managed by an admin
+          const canRename = viewerIsAdmin || u.role === "member";
+          return (
+            <li key={u.id} className="flex items-center gap-3">
+              <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 truncate font-medium">
+                  {u.name}
+                  {u.role !== "member" && <Badge variant="secondary">{roleLabel[u.role] ?? u.role}</Badge>}
+                  {u.status === "rejected" && <Badge variant="destructive">banni</Badge>}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+              </div>
+              {u.id !== viewerId && u.role !== "admin" && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={pending} aria-label={`Actions pour ${u.name}`} />}>
+                    <MoreHorizontal />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {canRename && (
+                      <DropdownMenuItem onClick={() => setRenaming(u)}>
+                        <PenLine />
+                        Renommer
+                      </DropdownMenuItem>
+                    )}
+                    {canRename && <DropdownMenuSeparator />}
+                    {canEditRole &&
+                      (u.role === "moderator" ? (
+                        <DropdownMenuItem onClick={() => run(() => setUserRole(u.id, "member"), `${u.name} n'est plus modo`)}>
+                          <ShieldMinus />
+                          Retirer le rôle de modo
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => run(() => setUserRole(u.id, "moderator"), `${u.name} est modo`)}>
+                          <ShieldPlus />
+                          Nommer modérateur
+                        </DropdownMenuItem>
+                      ))}
+                    {canEditRole && <DropdownMenuSeparator />}
+                    {u.status === "active" ? (
+                      <DropdownMenuItem variant="destructive" onClick={() => run(() => setUserStatus(u.id, "rejected"), "Membre banni", `Bannir ${u.name} ? Ses sessions seront fermées.`)}>
+                        <Ban />
+                        Bannir
                       </DropdownMenuItem>
                     ) : (
-                      <DropdownMenuItem onClick={() => run(() => setUserRole(u.id, "moderator"), `${u.name} est modo`)}>
-                        <ShieldPlus />
-                        Nommer modérateur
+                      <DropdownMenuItem onClick={() => run(() => setUserStatus(u.id, "active"), "Réintégré")}>
+                        <Undo2 />
+                        Réintégrer
                       </DropdownMenuItem>
-                    ))}
-                  {canEditRole && <DropdownMenuSeparator />}
-                  {u.status === "active" ? (
-                    <DropdownMenuItem variant="destructive" onClick={() => run(() => setUserStatus(u.id, "rejected"), "Membre banni", `Bannir ${u.name} ? Ses sessions seront fermées.`)}>
-                      <Ban />
-                      Bannir
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem onClick={() => run(() => setUserStatus(u.id, "active"), "Réintégré")}>
-                      <Undo2 />
-                      Réintégrer
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {renaming && <RenameDialog member={renaming} onClose={() => setRenaming(null)} />}
+    </>
+  );
+}
+
+function RenameDialog({ member, onClose }: { member: ModMember; onClose: () => void }) {
+  const { pending, run } = useServerAction();
+  const [name, setName] = useState(member.name);
+  const trimmed = name.trim();
+  const valid = trimmed.length >= NAME_MIN && trimmed !== member.name;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !pending && onClose()}>
+      <DialogContent>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!valid) return;
+            run(() => renameUser(member.id, trimmed), { success: `${member.name} s'appelle maintenant ${trimmed}`, onSuccess: onClose, refreshOnError: true });
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Renommer {member.name}</DialogTitle>
+          </DialogHeader>
+          <Input value={name} onChange={(e) => setName(e.target.value)} minLength={NAME_MIN} maxLength={NAME_MAX} aria-label="Nouveau pseudo" autoFocus />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={pending || !valid}>
+              Renommer
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

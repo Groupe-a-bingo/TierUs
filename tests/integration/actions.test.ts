@@ -13,7 +13,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 const { db, schema } = await import("@/db");
-const { setIdeaValidationAction, setUserRole, setUserStatus } = await import("@/app/actions/moderation");
+const { renameUser, setIdeaValidationAction, setUserRole, setUserStatus } = await import("@/app/actions/moderation");
 const { addIdea, deleteIdea, updateIdea } = await import("@/app/actions/ideas");
 const { addComment, deleteComment, setReaction } = await import("@/app/actions/social");
 const { createExtraRoundAction, submitTierListAction } = await import("@/app/actions/rounds");
@@ -63,6 +63,25 @@ describe("moderation actions", () => {
     expect(await setUserRole(member.id, "moderator")).toEqual({ ok: true });
     expect((await statusOf(member.id)).role).toBe("moderator");
     expect(await setIdeaValidationAction(true)).toMatchObject({ ok: true });
+  });
+
+  it("moderators rename members; only an admin renames a moderator; nobody renames an admin or themselves", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const mod = await makeUser({ role: "moderator" });
+    const other = await makeUser({ role: "moderator" });
+    const member = await makeUser();
+    as(mod);
+    expect(await renameUser(member.id, "  Nouveau nom ")).toEqual({ ok: true });
+    expect((await statusOf(member.id)).name).toBe("Nouveau nom");
+    expect(await renameUser(member.id, "x")).toMatchObject({ ok: false });
+    expect(await renameUser(mod.id, "Moi")).toMatchObject({ ok: false });
+    expect(await renameUser(other.id, "Autre")).toMatchObject({ ok: false });
+    expect(await renameUser(admin.id, "Chef")).toMatchObject({ ok: false });
+    as(admin);
+    expect(await renameUser(other.id, "Autre modo")).toEqual({ ok: true });
+    expect((await statusOf(other.id)).name).toBe("Autre modo");
+    as(member);
+    expect(await renameUser(other.id, "Pirate")).toEqual({ ok: false, error: "Accès refusé" });
   });
 
   it("members and signed-out visitors are refused", async () => {

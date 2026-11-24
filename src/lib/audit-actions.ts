@@ -11,6 +11,7 @@ export const AUDIT_ACTIONS = {
   "user.approve": "Membre validé",
   "user.reject": "Membre refusé",
   "user.role": "Rôle changé",
+  "user.rename": "Membre renommé",
   "user.promote_admin": "Admin nommé (serveur)",
   "comment.delete": "Message supprimé",
   "settings.idea_validation": "Validation des idées changée",
