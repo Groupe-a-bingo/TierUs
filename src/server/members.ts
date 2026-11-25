@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, schema, type Tx } from "@/db";
 import { audit } from "@/lib/audit";
 import { badRequest, forbidden, notFound } from "@/lib/errors";
+import { deleteStored } from "@/lib/storage";
 import { addMemberToActiveRounds, removeMemberFromActiveRounds } from "@/server/rounds/targets";
 import { lockMembership } from "@/server/rounds/lock";
 
@@ -91,4 +92,21 @@ export async function renameMember(targetId: string, name: string, actor: NonNul
     await tx.update(user).set({ name, updatedAt: new Date() }).where(eq(user.id, targetId));
     await audit(actor.id, "user.rename", "user", targetId, { from: target.name, to: name }, tx);
   });
+}
+
+/** Remove a member's profile photo from /mod, under the same rules as renaming. */
+export async function removeMemberAvatar(targetId: string, actor: NonNullable<MemberActor>) {
+  const path = await db.transaction(async (tx) => {
+    const target = await lockTarget(tx, targetId);
+    if (target.id === actor.id) throw badRequest("Change ta photo depuis ton profil");
+    if (target.role === "admin") throw forbidden("Impossible de modifier un admin");
+    if (target.role === "moderator" && actor.role !== "admin") throw forbidden("Seul un admin peut gérer un modérateur");
+    if (!target.avatarFileId) throw badRequest("Ce membre n'a pas de photo");
+
+    await tx.update(user).set({ avatarFileId: null, updatedAt: new Date() }).where(eq(user.id, targetId));
+    const [file] = await tx.delete(schema.files).where(eq(schema.files.id, target.avatarFileId)).returning({ path: schema.files.path });
+    await audit(actor.id, "user.remove_avatar", "user", targetId, { fileId: target.avatarFileId }, tx);
+    return file?.path;
+  });
+  if (path) await deleteStored(path).catch(() => {});
 }

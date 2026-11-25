@@ -4,6 +4,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 let signedIn: string | null = null;
 vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-forwarded-for": "203.0.113.7" }) }));
@@ -13,7 +15,8 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 const { db, schema } = await import("@/db");
-const { renameUser, setIdeaValidationAction, setUserRole, setUserStatus } = await import("@/app/actions/moderation");
+const { removeUserAvatar, renameUser, setIdeaValidationAction, setUserRole, setUserStatus } = await import("@/app/actions/moderation");
+const { resolveStoragePath } = await import("@/lib/storage");
 const { addIdea, deleteIdea, updateIdea } = await import("@/app/actions/ideas");
 const { addComment, deleteComment, setReaction } = await import("@/app/actions/social");
 const { createExtraRoundAction, submitTierListAction } = await import("@/app/actions/rounds");
@@ -82,6 +85,49 @@ describe("moderation actions", () => {
     expect((await statusOf(other.id)).name).toBe("Autre modo");
     as(member);
     expect(await renameUser(other.id, "Pirate")).toEqual({ ok: false, error: "Accès refusé" });
+  });
+
+  it("removes a member's photo and stored file, with the same permissions as renaming", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const mod = await makeUser({ role: "moderator" });
+    const other = await makeUser({ role: "moderator" });
+    const member = await makeUser();
+    const addPhoto = async (ownerId: string) => {
+      const relPath = path.join("avatars", `${crypto.randomUUID()}.webp`);
+      const fullPath = resolveStoragePath(relPath);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, "photo");
+      const [file] = await db.insert(schema.files).values({ ownerId, path: relPath, mime: "image/webp" }).returning();
+      await db.update(schema.user).set({ avatarFileId: file.id }).where(eq(schema.user.id, ownerId));
+      return { file, fullPath };
+    };
+    const ownPhoto = await addPhoto(mod.id);
+    const adminPhoto = await addPhoto(admin.id);
+    const otherPhoto = await addPhoto(other.id);
+    const memberPhoto = await addPhoto(member.id);
+    try {
+      as(mod);
+      for (const id of [mod.id, admin.id, other.id]) expect(await removeUserAvatar(id)).toMatchObject({ ok: false });
+      expect(await removeUserAvatar(member.id)).toEqual({ ok: true });
+      expect((await statusOf(member.id)).avatarFileId).toBeNull();
+      expect(await db.select().from(schema.files).where(eq(schema.files.id, memberPhoto.file.id))).toHaveLength(0);
+      await expect(fs.stat(memberPhoto.fullPath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await removeUserAvatar(member.id)).toMatchObject({ ok: false });
+
+      as(admin);
+      expect(await removeUserAvatar(other.id)).toEqual({ ok: true });
+      expect((await statusOf(other.id)).avatarFileId).toBeNull();
+      const logs = await db.select().from(schema.auditLog).where(eq(schema.auditLog.action, "user.remove_avatar"));
+      expect(logs).toHaveLength(2);
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ actorId: mod.id, targetId: member.id }),
+        expect.objectContaining({ actorId: admin.id, targetId: other.id }),
+      ]));
+      as(member);
+      expect(await removeUserAvatar(admin.id)).toEqual({ ok: false, error: "Accès refusé" });
+    } finally {
+      await Promise.all([ownPhoto, adminPhoto, otherPhoto, memberPhoto].map(({ fullPath }) => fs.rm(fullPath, { force: true })));
+    }
   });
 
   it("members and signed-out visitors are refused", async () => {
