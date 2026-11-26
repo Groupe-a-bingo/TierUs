@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { cva } from "class-variance-authority";
-import { Ban, Hourglass, ListPlus, MoreHorizontal, Pencil, PenLine, ShieldMinus, ShieldPlus, Trash2, Undo2 } from "lucide-react";
+import { Ban, Hourglass, ImageOff, ListPlus, MoreHorizontal, Pencil, PenLine, ShieldMinus, ShieldPlus, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { AvatarTile } from "@/components/tier-board/avatar-tile";
 import { IdeaForm } from "@/components/ideas/idea-form";
-import { renameUser, setDrawHourAction, setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
+import { removeUserAvatar, renameUser, setDrawHourAction, setIdeaValidationAction, setUserRole, setUserStatus } from "@/app/actions/moderation";
 import { deleteIdea, reviewIdeaAction, requeueIdeaAction } from "@/app/actions/ideas";
 import { createExtraRoundAction, drawNowAction } from "@/app/actions/rounds";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -77,7 +77,7 @@ export function Members({ users, viewerId, viewerIsAdmin }: { users: ModMember[]
         {users.map((u) => {
           const canEditRole = viewerIsAdmin && u.status === "active";
           // same rule as the server: a moderator is only managed by an admin
-          const canRename = viewerIsAdmin || u.role === "member";
+          const canEditProfile = viewerIsAdmin || u.role === "member";
           return (
             <li key={u.id} className="flex items-center gap-3">
               <AvatarTile name={u.name} fileId={u.avatarFileId} size="sm" />
@@ -95,13 +95,19 @@ export function Members({ users, viewerId, viewerIsAdmin }: { users: ModMember[]
                     <MoreHorizontal />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    {canRename && (
+                    {canEditProfile && (
                       <DropdownMenuItem onClick={() => setRenaming(u)}>
                         <PenLine />
                         Renommer
                       </DropdownMenuItem>
                     )}
-                    {canRename && <DropdownMenuSeparator />}
+                    {canEditProfile && u.avatarFileId && (
+                      <DropdownMenuItem variant="destructive" onClick={() => run(() => removeUserAvatar(u.id), "Photo de profil supprimée", `Supprimer la photo de profil de ${u.name} ?`)}>
+                        <ImageOff />
+                        Supprimer la photo
+                      </DropdownMenuItem>
+                    )}
+                    {canEditProfile && <DropdownMenuSeparator />}
                     {canEditRole &&
                       (u.role === "moderator" ? (
                         <DropdownMenuItem onClick={() => run(() => setUserRole(u.id, "member"), `${u.name} n'est plus modo`)}>

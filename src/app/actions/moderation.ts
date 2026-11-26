@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { guard } from "@/lib/guard";
 import { parseInput, runAction } from "@/lib/errors";
-import { renameMember, setMemberRole, setMemberStatus } from "@/server/members";
+import { removeMemberAvatar, renameMember, setMemberRole, setMemberStatus } from "@/server/members";
 import { nameSchema } from "@/lib/names";
 import { setDrawHour, setIdeaValidation } from "@/server/settings";
 import { catchUpDaily } from "@/server/rounds/catch-up";
@@ -34,6 +34,15 @@ export async function renameUser(id: string, name: string) {
   return runAction(async () => {
     const mod = await guard("moderator", "modAction");
     await renameMember(parseInput(userId, id), parseInput(nameSchema, name), mod);
+    revalidatePath("/", "layout");
+  });
+}
+
+/** Remove a member's photo. Permission rules live in removeMemberAvatar. */
+export async function removeUserAvatar(id: string) {
+  return runAction(async () => {
+    const mod = await guard("moderator", "modAction");
+    await removeMemberAvatar(parseInput(userId, id), mod);
     revalidatePath("/", "layout");
   });
 }
